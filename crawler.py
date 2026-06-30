@@ -42,28 +42,19 @@ MOBILE_UA  = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit
 # 있는지로 매칭한다(부분일치로 동명 다른 지점을 잘못 잡는 문제도 방지).
 #
 # 광고 마커: 항목 안에 정확히 "광고" 텍스트만 가진 leaf 요소(span.place_blind 등).
-# name(업체명)도 best-effort로 추출 — 광고 업체를 자연순위에서 제외(중복 광고업체 dedup)하기 위함.
-_NAME_SELS = ['.YwYLL', '.q2LdB', '.TYaxT', '.place_bluelink', '.CMy2_', '.tit', '.O_Uah']
 _MATCH_JS = """
-(els, args) => {
-  const targetNorm = args.target;
-  const NAME_SELS = args.nameSels;
+(els, targetNorm) => {
   const norm = s => (s || '').replace(/\\s+/g, '').toLowerCase();
   return els.map(el => {
     const leaves = Array.from(el.querySelectorAll('*')).filter(e => e.children.length === 0);
     const isAd = leaves.some(e => e.textContent.trim() === '광고');
-    let name = '';
-    for (const s of NAME_SELS) {
-      const n = el.querySelector(s);
-      if (n && n.textContent.trim()) { name = n.textContent.trim(); break; }
-    }
     let isMatch = false;
     if (targetNorm.length >= 2) {
       for (const e of leaves) {
-        if (norm(e.textContent) === targetNorm) { isMatch = true; if (!name) name = e.textContent.trim(); break; }
+        if (norm(e.textContent) === targetNorm) { isMatch = true; break; }
       }
     }
-    return { isAd, isMatch, name };
+    return { isAd, isMatch };
   });
 }
 """
@@ -148,9 +139,7 @@ async def _find_rank(page_or_frame, target_name: str) -> dict:
     items = []
     for sel in ITEM_SELECTORS:
         try:
-            data = await page_or_frame.eval_on_selector_all(
-                sel, _MATCH_JS, {'target': target, 'nameSels': _NAME_SELS}
-            )
+            data = await page_or_frame.eval_on_selector_all(sel, _MATCH_JS, target)
         except Exception:
             continue
         if data:
@@ -161,23 +150,17 @@ async def _find_rank(page_or_frame, target_name: str) -> dict:
         result['error'] = '업체 목록 없음 (셀렉터 업데이트 필요)'
         return result
 
-    # 광고 슬롯에 나온 업체명 집합 — 이 업체들은 자연순위에서도 제외(사장님 카운트 방식)
-    ad_names = {_norm(d.get('name')) for d in items if d.get('isAd') and d.get('name')}
-
+    # 광고 슬롯만 제외하고, 네이버가 표시하는 자연순위 위치 그대로 카운트
     organic = 0
     for d in items[:50]:
         result['checked'] += 1
-        if d.get('isAd'):                 # 광고 슬롯 자체 제외
+        if d.get('isAd'):
             continue
-        if d.get('isMatch'):              # 우리 업체(정확 일치) → 현재 순위 확정
-            organic += 1
+        organic += 1
+        if d.get('isMatch'):
             result['rank'] = organic
             result['is_exposed'] = organic <= 5
             return result
-        nm = _norm(d.get('name'))
-        if nm and nm in ad_names:         # 광고도 하는 다른 업체 → 자연순위에서 제외
-            continue
-        organic += 1
 
     return result
 
