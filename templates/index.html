@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JUSTICE - 네이버 플레이스 순위 관리</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<style>
+  :root {
+    --brand: #03C75A;
+    --brand-dark: #028a40;
+    --bg: #f4f6f9;
+  }
+  body { background: var(--bg); font-family: 'Segoe UI', sans-serif; }
+  .navbar { background: #fff; border-bottom: 2px solid var(--brand); }
+  .navbar-brand { color: var(--brand) !important; font-weight: 800; font-size: 1.3rem; }
+  .stat-card { background: #fff; border-radius: 12px; padding: 1.2rem 1.5rem;
+                box-shadow: 0 2px 8px rgba(0,0,0,.06); border-left: 4px solid var(--brand); }
+  .stat-card .num { font-size: 2rem; font-weight: 700; color: #1a1a2e; }
+  .stat-card .label { color: #888; font-size: .85rem; }
+  .client-card { background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06);
+                  margin-bottom: 1rem; overflow: hidden; }
+  .client-header { background: #f8f9fa; padding: .75rem 1.25rem; border-bottom: 1px solid #eee;
+                    display: flex; align-items: center; gap: .5rem; }
+  .client-header .place-id { font-size: .75rem; color: #aaa; }
+  .kw-row { padding: .6rem 1.25rem; border-bottom: 1px solid #f0f0f0; }
+  .kw-row:last-child { border-bottom: none; }
+  .progress { height: 8px; border-radius: 4px; }
+  .progress-bar { background: var(--brand); }
+  .progress-bar.done { background: #ffc107; }
+  .badge-active { background: #e8f9f0; color: var(--brand); }
+  .badge-done { background: #fff3cd; color: #856404; }
+  .badge-exposed { background: #d1ecf1; color: #0c5460; font-size: .7rem; }
+  .noti-dot { width: 8px; height: 8px; background: #dc3545; border-radius: 50%;
+               position: absolute; top: 4px; right: 4px; }
+  .noti-item { padding: .75rem 1rem; border-bottom: 1px solid #f0f0f0; }
+  .noti-item.unread { background: #fffbf0; border-left: 3px solid #ffc107; }
+  .noti-item.read { opacity: .65; }
+  .log-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+  .log-dot.exposed { background: var(--brand); }
+  .log-dot.not-exposed { background: #dee2e6; }
+  .btn-naver { background: var(--brand); color: #fff; border: none; }
+  .btn-naver:hover { background: var(--brand-dark); color: #fff; }
+  .crawl-spinner { display: none; }
+  .crawl-spinner.active { display: inline-block; }
+  #toastContainer { position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 9999; }
+  .section-title { font-weight: 700; font-size: 1rem; color: #444; margin-bottom: .75rem; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+  .checking { animation: pulse 1s infinite; color: #ffc107; }
+</style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-expand-lg px-4 py-2">
+  <span class="navbar-brand"><i class="bi bi-geo-alt-fill"></i> JUSTICE</span>
+  <span class="text-muted small ms-2">네이버 플레이스 순위 보장 관리</span>
+  <div class="ms-auto d-flex align-items-center gap-3">
+    <span class="text-muted small" id="lastRunLabel"></span>
+    <button class="btn btn-sm btn-naver" id="btnCheck" onclick="runManualCheck()">
+      <i class="bi bi-arrow-clockwise"></i>
+      <span class="crawl-spinner spinner-border spinner-border-sm" id="checkSpinner" role="status"></span>
+      전체 체크
+    </button>
+    <div class="position-relative" style="cursor:pointer" onclick="openNotifications()">
+      <i class="bi bi-bell-fill fs-5 text-secondary"></i>
+      <span class="noti-dot" id="notiDot" style="display:none"></span>
+    </div>
+    <button class="btn btn-sm btn-outline-secondary" onclick="openAddClient()">
+      <i class="bi bi-plus-circle"></i> 업체 등록
+    </button>
+  </div>
+</nav>
+
+<div class="container-fluid px-4 py-3">
+
+  <!-- Stats -->
+  <div class="row g-3 mb-4" id="statsRow">
+    <div class="col-6 col-md-3">
+      <div class="stat-card">
+        <div class="num" id="statClients">-</div>
+        <div class="label">등록 업체</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="stat-card" style="border-color:#0d6efd">
+        <div class="num" id="statActive">-</div>
+        <div class="label">진행 중 키워드</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="stat-card" style="border-color:#ffc107">
+        <div class="num" id="statDone">-</div>
+        <div class="label">결제 요청 대기</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="stat-card" style="border-color:#dc3545">
+        <div class="num" id="statNoti">-</div>
+        <div class="label">미확인 알림</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Client List -->
+  <div class="section-title"><i class="bi bi-building"></i> 업체 목록</div>
+  <div id="clientList"></div>
+
+</div>
+
+<!-- Toast -->
+<div id="toastContainer"></div>
+
+<!-- Modal: 업체 등록 -->
+<div class="modal fade" id="addClientModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">업체 등록</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-bold">업체명 <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="inputName" placeholder="예: 홍길동 치킨">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-bold">네이버 플레이스 URL <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="inputUrl"
+                 placeholder="예: https://map.naver.com/p/entry/place/1234567890"
+                 oninput="previewPlaceId()">
+          <div class="form-text text-muted">네이버 지도에서 업체 클릭 후 주소창의 URL을 붙여넣으세요</div>
+          <div id="placeIdPreview" class="mt-1"></div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">메모 (선택)</label>
+          <input type="text" class="form-control" id="inputMemo" placeholder="담당자, 연락처 등">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-bold">검색어 (첫 번째)</label>
+          <input type="text" class="form-control" id="inputKeyword" placeholder="예: 강남 치킨">
+          <div class="form-text">업체 등록 후 언제든지 검색어를 추가할 수 있습니다</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+        <button class="btn btn-naver" onclick="submitAddClient()">등록하기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: 검색어 추가 -->
+<div class="modal fade" id="addKeywordModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">검색어 추가</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="kwClientId">
+        <div class="mb-2">
+          <label class="form-label">검색어 <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="inputNewKeyword" placeholder="예: 강남 맛집">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+        <button class="btn btn-naver" onclick="submitAddKeyword()">추가</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: 알림 -->
+<div class="modal fade" id="notiModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-bell-fill text-warning"></i> 알림</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0" id="notiList" style="max-height:500px;overflow-y:auto"></div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-outline-secondary" onclick="markAllRead()">모두 읽음</button>
+        <button class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: 트래킹 로그 -->
+<div class="modal fade" id="logModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="logModalTitle">노출 기록</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="logModalBody"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const modals = {};
+['addClientModal','addKeywordModal','notiModal','logModal'].forEach(id => {
+  modals[id] = new bootstrap.Modal(document.getElementById(id));
+});
+
+// ── API 헬퍼 ────────────────────────────────────────────────────────────────
+
+async function api(url, opts={}) {
+  const res = await fetch(url, {
+    headers: {'Content-Type':'application/json'},
+    ...opts
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || '오류가 발생했습니다');
+  return data;
+}
+
+// ── 대시보드 로드 ────────────────────────────────────────────────────────────
+
+async function loadDashboard() {
+  const data = await api('/api/dashboard');
+  const s = data.stats;
+
+  document.getElementById('statClients').textContent = s.total_clients;
+  document.getElementById('statActive').textContent = s.active_keywords;
+  document.getElementById('statDone').textContent = s.completed_keywords;
+  document.getElementById('statNoti').textContent = s.unread_notifications;
+
+  const notiDot = document.getElementById('notiDot');
+  notiDot.style.display = s.unread_notifications > 0 ? 'block' : 'none';
+
+  renderClients(data.clients);
+  pollCrawlStatus();
+}
+
+function renderClients(clients) {
+  const container = document.getElementById('clientList');
+  if (!clients.length) {
+    container.innerHTML = `<div class="text-center text-muted py-5">
+      <i class="bi bi-building fs-1 d-block mb-2"></i>등록된 업체가 없습니다
+      <br><button class="btn btn-sm btn-naver mt-2" onclick="openAddClient()">업체 등록하기</button>
+    </div>`;
+    return;
+  }
+
+  container.innerHTML = clients.map(c => `
+    <div class="client-card" id="client-${c.id}">
+      <div class="client-header">
+        <i class="bi bi-building-fill text-success"></i>
+        <strong>${esc(c.name)}</strong>
+        <span class="place-id ms-1">ID: ${esc(c.place_id)}</span>
+        ${c.memo ? `<span class="text-muted small ms-2">${esc(c.memo)}</span>` : ''}
+        <div class="ms-auto d-flex gap-2">
+          <a href="${esc(c.place_url)}" target="_blank" class="btn btn-sm btn-outline-success py-0 px-2">
+            <i class="bi bi-box-arrow-up-right"></i>
+          </a>
+          <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick="openAddKeyword(${c.id})">
+            <i class="bi bi-plus"></i> 검색어
+          </button>
+          <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="confirmDeleteClient(${c.id},'${esc(c.name)}')">
+            <i class="bi bi-trash"></i>
+          </button>
+        </div>
+      </div>
+      ${c.keywords.length === 0
+        ? `<div class="kw-row text-muted small">등록된 검색어 없음</div>`
+        : c.keywords.map(k => renderKeywordRow(k)).join('')
+      }
+    </div>
+  `).join('');
+}
+
+function rankBadge(rank, exposed, platform) {
+  if (rank === null || rank === undefined) return `<span class="badge bg-light text-muted">${platform} 미확인</span>`;
+  const icon = platform === 'PC' ? '🖥' : '📱';
+  if (exposed) return `<span class="badge badge-exposed">${icon} ${platform} ${rank}위</span>`;
+  return `<span class="badge bg-light text-muted">${icon} ${platform} ${rank}위</span>`;
+}
+
+function renderKeywordRow(k) {
+  const pct = Math.min(k.progress, 100);
+  const isDone = k.is_complete;
+  const badgeCls = isDone ? 'badge-done' : 'badge-active';
+  const badgeText = isDone ? '결제 요청' : '진행중';
+  const barCls = isDone ? 'done' : '';
+
+  const todayBadges = `
+    ${rankBadge(k.today_pc_rank, k.today_pc_exposed, 'PC')}
+    ${rankBadge(k.today_mobile_rank, k.today_mobile_exposed, '모바일')}
+  `;
+
+  return `
+    <div class="kw-row d-flex align-items-center gap-2 flex-wrap">
+      <span class="badge ${badgeCls} rounded-pill">${badgeText}</span>
+      <strong class="me-1">${esc(k.keyword)}</strong>
+      <div class="flex-grow-1" style="min-width:120px">
+        <div class="progress">
+          <div class="progress-bar ${barCls}" style="width:${pct}%"></div>
+        </div>
+      </div>
+      <span class="small text-muted" style="min-width:80px">
+        ${k.exposure_count} / ${k.goal_days}일
+      </span>
+      <span class="d-flex gap-1">${todayBadges}</span>
+      ${k.started_at ? `<span class="small text-muted">시작: ${k.started_at}</span>` : ''}
+      ${isDone ? `<span class="small text-warning fw-bold">완료: ${k.completed_at}</span>` : ''}
+      <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="viewLogs(${k.id},'${esc(k.keyword)}')">
+        <i class="bi bi-graph-up"></i>
+      </button>
+      <button class="btn btn-sm btn-outline-success py-0 px-2" onclick="checkSingle(${k.id},'${esc(k.keyword)}')" title="즉시 체크">
+        <i class="bi bi-search"></i>
+      </button>
+      <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="confirmDeleteKeyword(${k.id},'${esc(k.keyword)}')">
+        <i class="bi bi-x"></i>
+      </button>
+    </div>
+  `;
+}
+
+function esc(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+// ── 업체 등록 ────────────────────────────────────────────────────────────────
+
+function openAddClient() { modals.addClientModal.show(); }
+
+function previewPlaceId() {
+  const url = document.getElementById('inputUrl').value;
+  const preview = document.getElementById('placeIdPreview');
+  const m = url.match(/\/(?:entry\/)?place\/(\d+)/);
+  if (m) {
+    preview.innerHTML = `<span class="text-success small"><i class="bi bi-check-circle-fill"></i> 업체 ID: <strong>${m[1]}</strong></span>`;
+  } else if (url.length > 10) {
+    preview.innerHTML = `<span class="text-danger small"><i class="bi bi-exclamation-circle"></i> 유효한 네이버 플레이스 URL이 아닙니다</span>`;
+  } else {
+    preview.innerHTML = '';
+  }
+}
+
+async function submitAddClient() {
+  const name = document.getElementById('inputName').value.trim();
+  const place_url = document.getElementById('inputUrl').value.trim();
+  const memo = document.getElementById('inputMemo').value.trim();
+  const keyword = document.getElementById('inputKeyword').value.trim();
+
+  if (!name || !place_url) { showToast('업체명과 URL을 입력하세요', 'danger'); return; }
+
+  try {
+    const client = await api('/api/clients', { method:'POST', body: JSON.stringify({name, place_url, memo}) });
+    if (keyword) {
+      await api(`/api/clients/${client.id}/keywords`, { method:'POST', body: JSON.stringify({keyword}) });
+    }
+    modals.addClientModal.hide();
+    clearAddForm();
+    showToast('업체가 등록되었습니다', 'success');
+    loadDashboard();
+  } catch(e) {
+    showToast(e.message, 'danger');
+  }
+}
+
+function clearAddForm() {
+  ['inputName','inputUrl','inputMemo','inputKeyword'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('placeIdPreview').innerHTML = '';
+}
+
+// ── 검색어 추가 ──────────────────────────────────────────────────────────────
+
+function openAddKeyword(clientId) {
+  document.getElementById('kwClientId').value = clientId;
+  document.getElementById('inputNewKeyword').value = '';
+  modals.addKeywordModal.show();
+}
+
+async function submitAddKeyword() {
+  const clientId = document.getElementById('kwClientId').value;
+  const keyword = document.getElementById('inputNewKeyword').value.trim();
+  if (!keyword) { showToast('검색어를 입력하세요', 'danger'); return; }
+  try {
+    await api(`/api/clients/${clientId}/keywords`, { method:'POST', body: JSON.stringify({keyword}) });
+    modals.addKeywordModal.hide();
+    showToast('검색어가 추가되었습니다', 'success');
+    loadDashboard();
+  } catch(e) {
+    showToast(e.message, 'danger');
+  }
+}
+
+// ── 삭제 ─────────────────────────────────────────────────────────────────────
+
+function confirmDeleteClient(id, name) {
+  if (!confirm(`[${name}] 업체를 삭제하시겠습니까?\n모든 검색어와 트래킹 데이터가 삭제됩니다.`)) return;
+  api(`/api/clients/${id}`, {method:'DELETE'}).then(() => {
+    showToast('삭제되었습니다', 'secondary');
+    loadDashboard();
+  });
+}
+
+function confirmDeleteKeyword(id, kw) {
+  if (!confirm(`[${kw}] 검색어를 삭제하시겠습니까?`)) return;
+  api(`/api/keywords/${id}`, {method:'DELETE'}).then(() => {
+    showToast('삭제되었습니다', 'secondary');
+    loadDashboard();
+  });
+}
+
+// ── 크롤링 ───────────────────────────────────────────────────────────────────
+
+async function runManualCheck() {
+  const btn = document.getElementById('btnCheck');
+  const spinner = document.getElementById('checkSpinner');
+  btn.disabled = true;
+  spinner.classList.add('active');
+  try {
+    await api('/api/check', {method:'POST'});
+    showToast('순위 체크를 시작했습니다. 완료까지 수 분이 걸릴 수 있습니다.', 'info');
+    pollCrawlStatus();
+  } catch(e) {
+    showToast(e.message, 'warning');
+    btn.disabled = false;
+    spinner.classList.remove('active');
+  }
+}
+
+async function checkSingle(kwId, kwText) {
+  if (!confirm(`[${kwText}] 키워드를 지금 즉시 체크하시겠습니까?`)) return;
+  showToast(`[${kwText}] 체크 중...`, 'info');
+  try {
+    const r = await api('/api/check/single', {method:'POST', body: JSON.stringify({keyword_id: kwId})});
+    const rank = r.rank ? `${r.rank}위` : '미노출';
+    const exposed = r.is_exposed ? '✅ 노출' : '❌ 미노출';
+    const msg = r.error
+      ? `오류: ${r.error}`
+      : `${exposed} (${rank})${r.completed ? ' ★ 25일 달성!' : ''}`;
+    showToast(`[${kwText}] ${msg}`, r.is_exposed ? 'success' : 'secondary');
+    loadDashboard();
+  } catch(e) {
+    showToast(e.message, 'danger');
+  }
+}
+
+let pollTimer;
+async function pollCrawlStatus() {
+  clearTimeout(pollTimer);
+  const status = await api('/api/check/status');
+  const label = document.getElementById('lastRunLabel');
+  const btn = document.getElementById('btnCheck');
+  const spinner = document.getElementById('checkSpinner');
+
+  if (status.running) {
+    label.innerHTML = '<span class="checking"><i class="bi bi-circle-fill"></i> 체크 중...</span>';
+    btn.disabled = true;
+    spinner.classList.add('active');
+    pollTimer = setTimeout(pollCrawlStatus, 5000);
+  } else {
+    btn.disabled = false;
+    spinner.classList.remove('active');
+    if (status.last_run) {
+      label.textContent = `마지막 체크: ${status.last_run}`;
+      loadDashboard();
+    } else {
+      label.textContent = '';
+    }
+  }
+}
+
+// ── 알림 ─────────────────────────────────────────────────────────────────────
+
+async function openNotifications() {
+  const notis = await api('/api/notifications');
+  const body = document.getElementById('notiList');
+  if (!notis.length) {
+    body.innerHTML = '<div class="text-center text-muted p-4">알림이 없습니다</div>';
+  } else {
+    body.innerHTML = notis.map(n => `
+      <div class="noti-item ${n.is_read ? 'read' : 'unread'}" onclick="markRead(${n.id}, this)">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <span class="badge bg-warning text-dark me-1">결제 요청</span>
+            <strong>${esc(n.client_name)}</strong>
+            ${n.keyword ? ` / ${esc(n.keyword)}` : ''}
+          </div>
+          <small class="text-muted">${n.created_at.slice(0,16)}</small>
+        </div>
+        <div class="mt-1 text-dark">${esc(n.message)}</div>
+      </div>
+    `).join('');
+  }
+  modals.notiModal.show();
+}
+
+async function markRead(id, el) {
+  await api(`/api/notifications/${id}/read`, {method:'POST'});
+  el.classList.remove('unread');
+  el.classList.add('read');
+  loadDashboard();
+}
+
+async function markAllRead() {
+  await api('/api/notifications/read-all', {method:'POST'});
+  document.querySelectorAll('.noti-item').forEach(el => {
+    el.classList.remove('unread'); el.classList.add('read');
+  });
+  loadDashboard();
+}
+
+// ── 트래킹 로그 ───────────────────────────────────────────────────────────────
+
+async function viewLogs(kwId, kwText) {
+  const logs = await api(`/api/keywords/${kwId}/logs`);
+  document.getElementById('logModalTitle').textContent = `[${kwText}] 노출 기록`;
+
+  if (!logs.length) {
+    document.getElementById('logModalBody').innerHTML = '<p class="text-muted">기록이 없습니다</p>';
+  } else {
+    const fmtRank = (rank, exposed, label) => {
+      if (rank === null || rank === undefined) return `<span class="text-muted small">${label} 미확인</span>`;
+      return exposed
+        ? `<span class="text-success fw-bold">${label} ${rank}위 ✅</span>`
+        : `<span class="text-muted">${label} ${rank}위</span>`;
+    };
+    const rows = logs.map(l => `
+      <tr>
+        <td>${l.check_date}</td>
+        <td>${fmtRank(l.pc_rank, l.pc_exposed, '🖥PC')}</td>
+        <td>${fmtRank(l.mobile_rank, l.mobile_exposed, '📱모바일')}</td>
+        <td>
+          <span class="log-dot ${l.is_exposed ? 'exposed' : 'not-exposed'}"></span>
+          ${l.is_exposed ? '<span class="text-success fw-bold">노출일 카운트</span>' : '<span class="text-muted">미카운트</span>'}
+        </td>
+      </tr>
+    `).join('');
+    document.getElementById('logModalBody').innerHTML = `
+      <p class="text-muted small mb-2">PC 또는 모바일 중 하나라도 1~5위이면 노출일로 카운트됩니다.</p>
+      <table class="table table-sm table-hover">
+        <thead><tr><th>날짜</th><th>PC 순위</th><th>모바일 순위</th><th>카운트</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  }
+  modals.logModal.show();
+}
+
+// ── 토스트 ───────────────────────────────────────────────────────────────────
+
+function showToast(msg, type='info') {
+  const id = 'toast_' + Date.now();
+  const colors = {success:'#198754', danger:'#dc3545', warning:'#ffc107', info:'#0dcaf0', secondary:'#6c757d'};
+  const el = document.createElement('div');
+  el.id = id;
+  el.style.cssText = `background:${colors[type]||'#333'};color:#fff;padding:.75rem 1.25rem;border-radius:8px;
+    margin-bottom:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.2);max-width:350px;font-size:.9rem;`;
+  el.textContent = msg;
+  document.getElementById('toastContainer').appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+// ── 초기화 ───────────────────────────────────────────────────────────────────
+
+loadDashboard();
+setInterval(loadDashboard, 60000); // 1분마다 새로고침
+</script>
+</body>
+</html>
