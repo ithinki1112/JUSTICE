@@ -84,6 +84,11 @@ def _migrate(conn):
     # 업체명: place_id로 1회 조회해 캐시 (검색 목록에서 이름으로 매칭하기 위함)
     if not _column_exists(conn, 'clients', 'place_name'):
         conn.execute("ALTER TABLE clients ADD COLUMN place_name TEXT")
+    # 업체 좌표: 검색 시 업체 위치 기준으로 조회해 순위를 일관되게 (네이버 지역 순위 대응)
+    if not _column_exists(conn, 'clients', 'place_x'):
+        conn.execute("ALTER TABLE clients ADD COLUMN place_x TEXT")
+    if not _column_exists(conn, 'clients', 'place_y'):
+        conn.execute("ALTER TABLE clients ADD COLUMN place_y TEXT")
     # 수기 노출일: 구글시트 등에서 옮겨적는 시작 누적 일수
     if not _column_exists(conn, 'keywords', 'manual_days'):
         conn.execute("ALTER TABLE keywords ADD COLUMN manual_days INTEGER DEFAULT 0")
@@ -146,7 +151,8 @@ def get_keywords_by_client(client_id: int):
 def get_all_active_keywords():
     with get_db() as conn:
         rows = conn.execute('''
-            SELECT k.*, c.name as client_name, c.place_id, c.place_name, c.place_url
+            SELECT k.*, c.name as client_name, c.place_id, c.place_name,
+                   c.place_x, c.place_y, c.place_url
             FROM keywords k
             JOIN clients c ON c.id = k.client_id
             WHERE k.is_complete = 0
@@ -248,10 +254,19 @@ def set_manual_days(keyword_id: int, days: int) -> bool:
         return _recompute_exposure(conn, keyword_id)
 
 
-def update_client_place_name(client_id: int, place_name: str):
-    """크롤링 중 확인된 업체명을 캐시합니다."""
+def update_client_place_info(client_id: int, place_name: str = None,
+                             place_x: str = None, place_y: str = None):
+    """크롤링 중 확인된 업체명/좌표를 캐시합니다 (값이 있는 항목만 갱신)."""
+    sets, vals = [], []
+    if place_name:
+        sets.append('place_name=?'); vals.append(place_name)
+    if place_x and place_y:
+        sets += ['place_x=?', 'place_y=?']; vals += [place_x, place_y]
+    if not sets:
+        return
+    vals.append(client_id)
     with get_db() as conn:
-        conn.execute('UPDATE clients SET place_name=? WHERE id=?', (place_name, client_id))
+        conn.execute(f'UPDATE clients SET {", ".join(sets)} WHERE id=?', vals)
 
 
 def get_tracking_logs(keyword_id: int, limit: int = 30):
