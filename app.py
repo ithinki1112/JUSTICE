@@ -13,7 +13,7 @@ from database import (
     get_all_active_keywords, record_tracking, get_tracking_logs,
     already_checked_today, get_notifications, mark_notification_read,
     mark_all_notifications_read, get_unread_count, get_dashboard_data,
-    set_manual_days, update_client_place_info
+    set_manual_days, update_client_place_info, mark_payment_complete
 )
 from crawler import check_place_rank_sync, extract_place_id
 
@@ -246,6 +246,13 @@ def api_set_manual_days(keyword_id):
         return jsonify({'error': '0 이상의 값을 입력하세요'}), 400
     completed = set_manual_days(keyword_id, days)
     return jsonify({'ok': True, 'completed': completed})
+
+
+@app.route('/api/keywords/<int:keyword_id>/payment-complete', methods=['POST'])
+def api_payment_complete(keyword_id):
+    """결제 완료 처리 — 깜빡이는 결제 대기 상태 해제."""
+    mark_payment_complete(keyword_id)
+    return jsonify({'ok': True})
 
 
 # ── API: 크롤링 ────────────────────────────────────────────────────────────────

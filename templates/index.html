@@ -48,6 +48,9 @@
   .section-title { font-weight: 700; font-size: 1rem; color: #444; margin-bottom: .75rem; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
   .checking { animation: pulse 1s infinite; color: #ffc107; }
+  @keyframes blink { 0%,100%{opacity:1; box-shadow:0 0 0 0 rgba(255,193,7,.7)} 50%{opacity:.55; box-shadow:0 0 0 4px rgba(255,193,7,0)} }
+  .blink { animation: blink 1s ease-in-out infinite; }
+  .row-pending { background:#fffbf0; border-left:3px solid #ffc107; }
 </style>
 </head>
 <body>
@@ -235,7 +238,7 @@ async function loadDashboard() {
 
   document.getElementById('statClients').textContent = s.total_clients;
   document.getElementById('statActive').textContent = s.active_keywords;
-  document.getElementById('statDone').textContent = s.completed_keywords;
+  document.getElementById('statDone').textContent = s.payment_pending;
   document.getElementById('statNoti').textContent = s.unread_notifications;
 
   const notiDot = document.getElementById('notiDot');
@@ -292,18 +295,28 @@ function rankBadge(rank, exposed, platform) {
 
 function renderKeywordRow(k) {
   const pct = Math.min(k.progress, 100);
-  const isDone = k.is_complete;
-  const badgeCls = isDone ? 'badge-done' : 'badge-active';
-  const badgeText = isDone ? '결제 요청' : '진행중';
-  const barCls = isDone ? 'done' : '';
+  const pending = k.payment_pending;
+  // 상태 배지: 결제 대기 > 진행중(N회 완료)
+  let badgeCls, badgeText;
+  if (pending) { badgeCls = 'badge-done'; badgeText = '💳 결제요청'; }
+  else if (k.cycle_count > 0) { badgeCls = 'badge-active'; badgeText = `진행중 · ${k.cycle_count}회 완료`; }
+  else { badgeCls = 'badge-active'; badgeText = '진행중'; }
+  const barCls = pending ? 'done' : '';
 
   const todayBadges = `
     ${rankBadge(k.today_pc_rank, k.today_pc_exposed, 'PC')}
     ${rankBadge(k.today_mobile_rank, k.today_mobile_exposed, '모바일')}
   `;
 
+  // 결제완료 버튼: 결제 대기일 때만 표시하고 깜빡임
+  const payBtn = pending
+    ? `<button class="btn btn-sm btn-warning py-0 px-2 blink fw-bold" onclick="markPaymentComplete(${k.id},'${esc(k.keyword)}')" title="결제가 확인되면 누르세요">
+         <i class="bi bi-cash-coin"></i> 결제완료
+       </button>`
+    : '';
+
   return `
-    <div class="kw-row d-flex align-items-center gap-2 flex-wrap">
+    <div class="kw-row d-flex align-items-center gap-2 flex-wrap${pending ? ' row-pending' : ''}">
       <span class="badge ${badgeCls} rounded-pill">${badgeText}</span>
       <strong class="me-1">${esc(k.keyword)}</strong>
       <div class="flex-grow-1" style="min-width:120px">
@@ -316,8 +329,9 @@ function renderKeywordRow(k) {
         ${k.manual_days ? `<span class="text-info" title="수기 입력 시작 일수">(수기 ${k.manual_days})</span>` : ''}
       </span>
       <span class="d-flex gap-1">${todayBadges}</span>
-      ${k.started_at ? `<span class="small text-muted">시작: ${k.started_at}</span>` : ''}
-      ${isDone ? `<span class="small text-warning fw-bold">완료: ${k.completed_at}</span>` : ''}
+      ${k.completed_at ? `<span class="small fw-bold ${pending ? 'text-danger' : 'text-success'}" title="가장 최근 25일 보장 달성일">🎯 보장완료: ${k.completed_at}</span>` : ''}
+      ${k.last_paid_at && !pending ? `<span class="small text-muted">결제완료: ${k.last_paid_at}</span>` : ''}
+      ${payBtn}
       <button class="btn btn-sm btn-outline-info py-0 px-2" onclick="setManualDays(${k.id}, ${k.manual_days || 0}, '${esc(k.keyword)}')" title="수기 노출일 입력">
         <i class="bi bi-pencil-square"></i>
       </button>
@@ -549,6 +563,19 @@ async function setManualDays(kwId, current, kwText) {
       method: 'POST', body: JSON.stringify({ days })
     });
     showToast(`수기 노출일 ${days}일 저장됨${r.completed ? ' ★ 목표 달성!' : ''}`, 'success');
+    loadDashboard();
+  } catch(e) {
+    showToast(e.message, 'danger');
+  }
+}
+
+// ── 결제 완료 ─────────────────────────────────────────────────────────────────
+
+async function markPaymentComplete(kwId, kwText) {
+  if (!confirm(`[${kwText}] 결제가 확인되어 완료 처리할까요?\n(노출 보장 카운트는 이미 다음 주기로 자동 재시작됩니다.)`)) return;
+  try {
+    await api(`/api/keywords/${kwId}/payment-complete`, { method: 'POST' });
+    showToast(`[${kwText}] 결제 완료 처리됨`, 'success');
     loadDashboard();
   } catch(e) {
     showToast(e.message, 'danger');
