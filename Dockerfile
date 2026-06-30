@@ -12,6 +12,10 @@ RUN playwright install chromium
 
 COPY . .
 
+# root로 실행 + DB 폴더 보장 (마운트 볼륨 /data 쓰기 권한)
+USER root
+RUN mkdir -p /data
+
 # DB는 영구 디스크(/data)에 저장 (재배포해도 데이터 보존)
 ENV DB_PATH=/data/justice.db
 ENV PORT=8000

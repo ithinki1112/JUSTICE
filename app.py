@@ -120,12 +120,18 @@ LOGIN_HTML = """
 @app.before_request
 def require_login():
     # 로그인 화면과 정적 파일은 인증 예외
-    if request.endpoint in ('login', 'static'):
+    if request.endpoint in ('login', 'static', 'healthz'):
         return
     if not session.get('authed'):
         if request.path.startswith('/api/'):
             return jsonify({'error': '로그인이 필요합니다', 'auth': False}), 401
         return redirect(url_for('login'))
+
+
+@app.route('/healthz')
+def healthz():
+    """배포 플랫폼 헬스체크용 (로그인 불필요, 항상 200)."""
+    return 'ok', 200
 
 
 @app.route('/login', methods=['GET', 'POST'])
