@@ -278,7 +278,7 @@ async def check_place_rank_both(keyword: str, place_id: str,
                                  place_y: str | None = None,
                                  headless: bool = True) -> dict:
     """
-    PC와 모바일 순위를 확인합니다.
+    PC(pcmap) 기준 현재 순위를 확인합니다. (모바일은 PC와 순위가 달라 혼란만 주므로 사용 안 함)
 
     place_name/place_x/place_y가 없으면 place_id로 1회 조회합니다.
     좌표가 있으면 업체 위치 기준으로 검색해 지역 순위를 일관되게 측정합니다.
@@ -287,11 +287,11 @@ async def check_place_rank_both(keyword: str, place_id: str,
         {
           'place_name': str|None, 'place_x': str|None, 'place_y': str|None,
           'pc':     {'rank': int|None, 'is_exposed': bool, 'error': str|None},
-          'mobile': {'rank': int|None, 'is_exposed': bool, 'error': str|None},
+          'mobile': {'rank': None, ...},   # 하위 호환용(사용 안 함)
         }
     """
+    none_mb = {'rank': None, 'is_exposed': False, 'error': None}
     async with async_playwright() as p:
-        # PC 브라우저
         pc_browser = await p.chromium.launch(headless=headless)
         pc_ctx = await pc_browser.new_context(
             user_agent=DESKTOP_UA,
@@ -300,19 +300,6 @@ async def check_place_rank_both(keyword: str, place_id: str,
         )
         pc_page = await pc_ctx.new_page()
         await pc_page.add_init_script(
-            "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
-        )
-
-        # 모바일 브라우저
-        mb_browser = await p.chromium.launch(headless=headless)
-        mb_ctx = await mb_browser.new_context(
-            user_agent=MOBILE_UA,
-            locale='ko-KR', timezone_id='Asia/Seoul',
-            viewport={'width': 390, 'height': 844},
-            is_mobile=True,
-        )
-        mb_page = await mb_ctx.new_page()
-        await mb_page.add_init_script(
             "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
         )
 
@@ -327,25 +314,18 @@ async def check_place_rank_both(keyword: str, place_id: str,
             if not place_name:
                 err = {'rank': None, 'is_exposed': False, 'error': '업체명을 확인할 수 없음 (place_id 확인 필요)'}
                 return {'place_name': None, 'place_x': None, 'place_y': None,
-                        'pc': dict(err), 'mobile': dict(err)}
+                        'pc': dict(err), 'mobile': dict(none_mb)}
 
-            pc_result, mb_result = await asyncio.gather(
-                _check_pc(pc_page, keyword, place_name, place_x, place_y),
-                _check_mobile(mb_page, keyword, place_name, place_x, place_y),
-                return_exceptions=True
-            )
-
-            if isinstance(pc_result, Exception):
-                pc_result = {'rank': None, 'is_exposed': False, 'error': f'PC: {pc_result}'}
-            if isinstance(mb_result, Exception):
-                mb_result = {'rank': None, 'is_exposed': False, 'error': f'모바일: {mb_result}'}
+            try:
+                pc_result = await _check_pc(pc_page, keyword, place_name, place_x, place_y)
+            except Exception as e:
+                pc_result = {'rank': None, 'is_exposed': False, 'error': f'PC: {e}'}
 
             return {'place_name': place_name, 'place_x': place_x, 'place_y': place_y,
-                    'pc': pc_result, 'mobile': mb_result}
+                    'pc': pc_result, 'mobile': dict(none_mb)}
 
         finally:
             await pc_browser.close()
-            await mb_browser.close()
 
 
 def check_place_rank_sync(keyword: str, place_id: str,

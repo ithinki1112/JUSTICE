@@ -72,11 +72,10 @@ def run_daily_check():
                 continue
             result, completed = crawl_and_record(kw)
             pc = result.get('pc', {})
-            mb = result.get('mobile', {})
-            pc_str = f"PC {pc.get('rank')}위" if pc.get('rank') else 'PC 미노출'
-            mb_str = f"모바일 {mb.get('rank')}위" if mb.get('rank') else '모바일 미노출'
+            rank = pc.get('rank')
+            rank_str = f"{rank}위" if rank else '미노출'
             flag = ' ★결제요청!' if completed else ''
-            results.append(f"[OK] {kw['client_name']} / {kw['keyword']} → {pc_str} / {mb_str}{flag}")
+            results.append(f"[OK] {kw['client_name']} / {kw['keyword']} → 현재 {rank_str}{flag}")
         crawl_status['last_run'] = date.today().isoformat()
         crawl_status['last_result'] = '\n'.join(results) if results else '대상 없음'
         crawl_status['running'] = False
