@@ -210,10 +210,29 @@
   </div>
 </div>
 
+<!-- Modal: 월별 순위표 (구글시트 복사용) -->
+<div class="modal fade" id="sheetModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="sheetModalTitle">월별 순위표</h5>
+        <div class="ms-auto d-flex align-items-center gap-2">
+          <button class="btn btn-sm btn-outline-secondary" onclick="sheetMonth(-1)"><i class="bi bi-chevron-left"></i></button>
+          <span id="sheetMonthLabel" class="small fw-bold"></span>
+          <button class="btn btn-sm btn-outline-secondary" onclick="sheetMonth(1)"><i class="bi bi-chevron-right"></i></button>
+          <button class="btn btn-sm btn-naver" onclick="copySheet()"><i class="bi bi-clipboard-check"></i> 복사</button>
+          <button type="button" class="btn-close ms-1" data-bs-dismiss="modal"></button>
+        </div>
+      </div>
+      <div class="modal-body" id="sheetModalBody" style="overflow-x:auto"></div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 const modals = {};
-['addClientModal','addKeywordModal','notiModal','logModal'].forEach(id => {
+['addClientModal','addKeywordModal','notiModal','logModal','sheetModal'].forEach(id => {
   modals[id] = new bootstrap.Modal(document.getElementById(id));
 });
 
@@ -267,6 +286,9 @@ function renderClients(clients) {
         ${c.place_name ? `<span class="place-id ms-1" title="순위 매칭에 사용되는 업체명">· ${esc(c.place_name)}</span>` : ''}
         ${c.memo ? `<span class="text-muted small ms-2">${esc(c.memo)}</span>` : ''}
         <div class="ms-auto d-flex gap-2">
+          <button class="btn btn-sm btn-outline-dark py-0 px-2" onclick="openSheet(${c.id},'${esc(c.name)}')" title="구글시트 복사용 월별 순위표">
+            <i class="bi bi-table"></i> 시트
+          </button>
           <a href="${esc(c.place_url)}" target="_blank" class="btn btn-sm btn-outline-success py-0 px-2">
             <i class="bi bi-box-arrow-up-right"></i>
           </a>
@@ -607,6 +629,92 @@ async function viewLogs(kwId, kwText) {
     `;
   }
   modals.logModal.show();
+}
+
+// ── 월별 순위표 (구글시트 복사용) ─────────────────────────────────────────────
+
+let sheetState = { clientId: null, clientName: '', year: 0, month: 0, data: null };
+
+function openSheet(clientId, clientName) {
+  const now = new Date();
+  sheetState = { clientId, clientName, year: now.getFullYear(), month: now.getMonth() + 1, data: null };
+  loadSheet();
+  modals.sheetModal.show();
+}
+
+function sheetMonth(delta) {
+  let m = sheetState.month + delta, y = sheetState.year;
+  if (m < 1) { m = 12; y--; }
+  if (m > 12) { m = 1; y++; }
+  sheetState.month = m; sheetState.year = y;
+  loadSheet();
+}
+
+async function loadSheet() {
+  const { clientId, year, month } = sheetState;
+  document.getElementById('sheetMonthLabel').textContent = `${year}년 ${month}월`;
+  document.getElementById('sheetModalBody').innerHTML = '<div class="text-muted p-3">불러오는 중...</div>';
+  try {
+    const data = await api(`/api/clients/${clientId}/sheet?year=${year}&month=${month}`);
+    sheetState.data = data;
+    renderSheet(data);
+  } catch(e) {
+    document.getElementById('sheetModalBody').innerHTML = `<div class="text-danger p-3">${esc(e.message)}</div>`;
+  }
+}
+
+function sheetRows(data) {
+  const header = ['순번', '키워드', '구분(노출영역)', '목표순위', '달성일'];
+  for (let d = 1; d <= data.days; d++) header.push(`${d}일`);
+  const rows = data.keywords.map((k, i) => {
+    const cells = [String(i + 1), k.keyword, '플레이스 상위노출', '1~5위', String(k.exposure_count)];
+    for (let d = 1; d <= data.days; d++) {
+      const v = k.daily[d];
+      cells.push(v === undefined || v === null ? '' : String(v));
+    }
+    return cells;
+  });
+  return { header, rows };
+}
+
+function renderSheet(data) {
+  document.getElementById('sheetModalTitle').textContent = `${sheetState.clientName} — 월별 순위표`;
+  if (!data.keywords.length) {
+    document.getElementById('sheetModalBody').innerHTML = '<div class="text-muted p-3">등록된 검색어가 없습니다</div>';
+    return;
+  }
+  const today = new Date();
+  const thisMonth = today.getFullYear() === data.year && (today.getMonth() + 1) === data.month;
+  const todayDay = today.getDate();
+  const isTodayCol = idx => thisMonth && idx >= 5 && (idx - 4) === todayDay;
+  const { header, rows } = sheetRows(data);
+  const thead = '<tr>' + header.map((h, idx) =>
+    `<th class="text-center ${isTodayCol(idx) ? 'table-warning' : ''}" style="white-space:nowrap">${esc(h)}</th>`
+  ).join('') + '</tr>';
+  const tbody = rows.map(r => '<tr>' + r.map((c, idx) => {
+    const exposed = idx >= 5 && c !== '' && Number(c) <= 5;
+    const cls = idx < 5
+      ? 'text-nowrap'
+      : `text-center ${isTodayCol(idx) ? 'table-warning' : ''} ${exposed ? 'text-success fw-bold' : 'text-muted'}`;
+    return `<td class="${cls}">${esc(c)}</td>`;
+  }).join('') + '</tr>').join('');
+  document.getElementById('sheetModalBody').innerHTML = `
+    <p class="small text-muted mb-2">📋 <b>복사</b> 버튼 → 구글시트에서 붙여넣기(Ctrl+V). 값은 그날의 현재 순위(PC 기준), 1~5위는 초록색입니다.</p>
+    <table class="table table-sm table-bordered align-middle" style="font-size:.8rem">
+      <thead class="table-light">${thead}</thead><tbody>${tbody}</tbody>
+    </table>`;
+}
+
+async function copySheet() {
+  if (!sheetState.data) return;
+  const { header, rows } = sheetRows(sheetState.data);
+  const tsv = [header, ...rows].map(r => r.join('\t')).join('\n');
+  try {
+    await navigator.clipboard.writeText(tsv);
+    showToast('복사됨! 구글시트에서 Ctrl+V 로 붙여넣으세요', 'success');
+  } catch(e) {
+    showToast('자동 복사 실패 — 표를 마우스로 드래그해 복사하세요', 'warning');
+  }
 }
 
 // ── 토스트 ───────────────────────────────────────────────────────────────────

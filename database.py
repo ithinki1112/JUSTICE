@@ -322,6 +322,42 @@ def get_tracking_logs(keyword_id: int, limit: int = 30):
         return [dict(r) for r in rows]
 
 
+def get_client_monthly(client_id: int, year: int, month: int):
+    """업체의 해당 월(1일~말일) 키워드별 일별 순위표 데이터 (구글시트 복사용)."""
+    import calendar
+    days = calendar.monthrange(year, month)[1]
+    start = f"{year:04d}-{month:02d}-01"
+    end = f"{year:04d}-{month:02d}-{days:02d}"
+    with get_db() as conn:
+        client = conn.execute('SELECT name FROM clients WHERE id=?', (client_id,)).fetchone()
+        kw_rows = conn.execute(
+            'SELECT id, keyword, goal_days, exposure_count FROM keywords WHERE client_id=? ORDER BY id',
+            (client_id,)
+        ).fetchall()
+        keywords = []
+        for k in kw_rows:
+            daily = {}
+            for l in conn.execute(
+                '''SELECT check_date, pc_rank, mobile_rank FROM tracking_logs
+                   WHERE keyword_id=? AND check_date BETWEEN ? AND ?''',
+                (k['id'], start, end)
+            ).fetchall():
+                day = int(l['check_date'][8:10])
+                # 현재 순위는 PC 기준 (PC 없으면 모바일)
+                daily[day] = l['pc_rank'] if l['pc_rank'] is not None else l['mobile_rank']
+            keywords.append({
+                'keyword': k['keyword'],
+                'goal_days': k['goal_days'],
+                'exposure_count': k['exposure_count'],
+                'daily': daily,
+            })
+        return {
+            'client_name': client['name'] if client else '',
+            'year': year, 'month': month, 'days': days,
+            'keywords': keywords,
+        }
+
+
 def already_checked_today(keyword_id: int) -> bool:
     today = date.today().isoformat()
     with get_db() as conn:

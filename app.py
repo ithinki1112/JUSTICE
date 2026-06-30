@@ -15,7 +15,8 @@ from database import (
     get_all_active_keywords, record_tracking, get_tracking_logs,
     already_checked_today, get_notifications, mark_notification_read,
     mark_all_notifications_read, get_unread_count, get_dashboard_data,
-    set_manual_days, update_client_place_info, mark_payment_complete
+    set_manual_days, update_client_place_info, mark_payment_complete,
+    get_client_monthly
 )
 from crawler import check_place_rank_sync, extract_place_id
 
@@ -60,7 +61,7 @@ def crawl_and_record(kw):
 # ── 스케줄러 ──────────────────────────────────────────────────────────────────
 
 def run_daily_check():
-    """매일 낮 12시 자동 순위 체크"""
+    """자동 순위 체크 (매일 낮 12시, 오후 3시)"""
     if crawl_lock.locked():
         return
     with crawl_lock:
@@ -69,9 +70,7 @@ def run_daily_check():
         keywords = get_all_active_keywords()
         results = []
         for kw in keywords:
-            if already_checked_today(kw['id']):
-                results.append(f"[SKIP] {kw['client_name']} / {kw['keyword']} - 오늘 이미 체크됨")
-                continue
+            # 하루 여러 번(정오/오후3시) 체크 — 같은 날 기록은 최신값으로 갱신됨
             result, completed = crawl_and_record(kw)
             pc = result.get('pc', {})
             rank = pc.get('rank')
@@ -91,11 +90,11 @@ try:
 except Exception as e:
     print(f'[JUSTICE] init_db FAILED: {e!r}', flush=True)
 
-# 매일 낮 12시(정오) 자동 체크 스케줄러 (실패해도 앱은 계속 실행)
+# 매일 낮 12시 + 오후 3시 자동 체크 스케줄러 (실패해도 앱은 계속 실행)
 scheduler = None
 try:
     scheduler = BackgroundScheduler(timezone='Asia/Seoul')
-    scheduler.add_job(run_daily_check, 'cron', hour=12, minute=0, id='daily_check')
+    scheduler.add_job(run_daily_check, 'cron', hour='12,15', minute=0, id='daily_check')
     scheduler.start()
     print('[JUSTICE] scheduler started', flush=True)
 except Exception as e:
@@ -214,6 +213,15 @@ def api_create_client():
 def api_delete_client(client_id):
     delete_client(client_id)
     return jsonify({'ok': True})
+
+
+@app.route('/api/clients/<int:client_id>/sheet')
+def api_client_sheet(client_id):
+    """구글시트 복사용 월별 순위표 (기본: 이번 달)."""
+    today = date.today()
+    year = int(request.args.get('year', today.year))
+    month = int(request.args.get('month', today.month))
+    return jsonify(get_client_monthly(client_id, year, month))
 
 
 # ── API: 키워드 ────────────────────────────────────────────────────────────────
