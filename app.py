@@ -8,7 +8,8 @@ from database import (
     create_keyword, get_keywords_by_client, delete_keyword,
     get_all_active_keywords, record_tracking, get_tracking_logs,
     already_checked_today, get_notifications, mark_notification_read,
-    mark_all_notifications_read, get_unread_count, get_dashboard_data
+    mark_all_notifications_read, get_unread_count, get_dashboard_data,
+    set_manual_days, update_client_place_name
 )
 from crawler import check_place_rank_sync, extract_place_id
 
@@ -17,6 +18,25 @@ app = Flask(__name__)
 # 동시에 여러 크롤링이 실행되지 않도록 락 사용
 crawl_lock = threading.Lock()
 crawl_status = {'running': False, 'last_run': None, 'last_result': ''}
+
+
+# ── 크롤링 공통 ────────────────────────────────────────────────────────────────
+
+def crawl_and_record(kw):
+    """키워드 1개를 크롤링하고 결과를 기록합니다. (result, completed) 반환."""
+    result = check_place_rank_sync(kw['keyword'], kw['place_id'], kw.get('place_name'))
+    # 처음 확인된 업체명은 캐시 (이후 검색 목록에서 이름으로 매칭)
+    if result.get('place_name') and not kw.get('place_name'):
+        update_client_place_name(kw['client_id'], result['place_name'])
+    today = date.today().isoformat()
+    pc = result.get('pc', {})
+    mb = result.get('mobile', {})
+    completed = record_tracking(
+        kw['id'], today,
+        pc.get('rank'), pc.get('is_exposed', False),
+        mb.get('rank'), mb.get('is_exposed', False),
+    )
+    return result, completed
 
 
 # ── 스케줄러 ──────────────────────────────────────────────────────────────────
@@ -34,15 +54,9 @@ def run_daily_check():
             if already_checked_today(kw['id']):
                 results.append(f"[SKIP] {kw['client_name']} / {kw['keyword']} - 오늘 이미 체크됨")
                 continue
-            result = check_place_rank_sync(kw['keyword'], kw['place_id'])
-            today = date.today().isoformat()
+            result, completed = crawl_and_record(kw)
             pc = result.get('pc', {})
             mb = result.get('mobile', {})
-            completed = record_tracking(
-                kw['id'], today,
-                pc.get('rank'), pc.get('is_exposed', False),
-                mb.get('rank'), mb.get('is_exposed', False),
-            )
             pc_str = f"PC {pc.get('rank')}위" if pc.get('rank') else 'PC 미노출'
             mb_str = f"모바일 {mb.get('rank')}위" if mb.get('rank') else '모바일 미노출'
             flag = ' ★결제요청!' if completed else ''
@@ -143,6 +157,20 @@ def api_keyword_logs(keyword_id):
     return jsonify(logs)
 
 
+@app.route('/api/keywords/<int:keyword_id>/manual-days', methods=['POST'])
+def api_set_manual_days(keyword_id):
+    """수기 시작 노출일 설정 (구글시트 등에서 옮겨적기). 이후 자동 체크가 누적됨."""
+    data = request.json or {}
+    try:
+        days = int(data.get('days'))
+    except (TypeError, ValueError):
+        return jsonify({'error': '노출일은 숫자로 입력하세요'}), 400
+    if days < 0:
+        return jsonify({'error': '0 이상의 값을 입력하세요'}), 400
+    completed = set_manual_days(keyword_id, days)
+    return jsonify({'ok': True, 'completed': completed})
+
+
 # ── API: 크롤링 ────────────────────────────────────────────────────────────────
 
 @app.route('/api/check', methods=['POST'])
@@ -173,15 +201,16 @@ def api_check_single():
     if not kw:
         return jsonify({'error': '키워드를 찾을 수 없습니다'}), 404
 
-    result = check_place_rank_sync(kw['keyword'], kw['place_id'])
-    today = date.today().isoformat()
+    result, completed = crawl_and_record(kw)
     pc = result.get('pc', {})
+    # 단일 체크 응답: 더 잘 노출된 쪽(PC/모바일)을 대표값으로
     mb = result.get('mobile', {})
-    completed = record_tracking(
-        kw['id'], today,
-        pc.get('rank'), pc.get('is_exposed', False),
-        mb.get('rank'), mb.get('is_exposed', False),
-    )
+    best = pc if (pc.get('rank') or 999) <= (mb.get('rank') or 999) else mb
+    result['rank'] = best.get('rank')
+    result['is_exposed'] = bool(pc.get('is_exposed') or mb.get('is_exposed'))
+    # 양쪽 다 순위를 못 찾았고 오류가 있으면 대표 오류 노출
+    if result['rank'] is None:
+        result['error'] = pc.get('error') or mb.get('error')
     result['completed'] = completed
     result['keyword'] = kw['keyword']
     return jsonify(result)

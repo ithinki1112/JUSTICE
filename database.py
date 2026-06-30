@@ -72,6 +72,21 @@ def init_db():
                 FOREIGN KEY (client_id) REFERENCES clients(id)
             );
         ''')
+        _migrate(conn)
+
+
+def _column_exists(conn, table: str, col: str) -> bool:
+    return any(r['name'] == col for r in conn.execute(f"PRAGMA table_info({table})"))
+
+
+def _migrate(conn):
+    """기존 DB에 누락된 컬럼을 추가합니다 (idempotent)."""
+    # 업체명: place_id로 1회 조회해 캐시 (검색 목록에서 이름으로 매칭하기 위함)
+    if not _column_exists(conn, 'clients', 'place_name'):
+        conn.execute("ALTER TABLE clients ADD COLUMN place_name TEXT")
+    # 수기 노출일: 구글시트 등에서 옮겨적는 시작 누적 일수
+    if not _column_exists(conn, 'keywords', 'manual_days'):
+        conn.execute("ALTER TABLE keywords ADD COLUMN manual_days INTEGER DEFAULT 0")
 
 
 # ── Client CRUD ──────────────────────────────────────────────────────────────
@@ -131,7 +146,7 @@ def get_keywords_by_client(client_id: int):
 def get_all_active_keywords():
     with get_db() as conn:
         rows = conn.execute('''
-            SELECT k.*, c.name as client_name, c.place_id, c.place_url
+            SELECT k.*, c.name as client_name, c.place_id, c.place_name, c.place_url
             FROM keywords k
             JOIN clients c ON c.id = k.client_id
             WHERE k.is_complete = 0
@@ -147,13 +162,58 @@ def delete_keyword(keyword_id: int):
 
 # ── Tracking ──────────────────────────────────────────────────────────────────
 
+def _recompute_exposure(conn, keyword_id: int) -> bool:
+    """
+    exposure_count = manual_days(수기 시작 일수) + 자동 노출일 수 로 재계산하고
+    목표 달성 여부를 갱신합니다. 이번 호출로 새로 달성되면 True 반환.
+    """
+    row = conn.execute(
+        'SELECT manual_days, goal_days, is_complete, client_id FROM keywords WHERE id=?',
+        (keyword_id,)
+    ).fetchone()
+    if not row:
+        return False
+
+    auto = conn.execute(
+        'SELECT COUNT(*) AS c FROM tracking_logs WHERE keyword_id=? AND is_exposed=1',
+        (keyword_id,)
+    ).fetchone()['c']
+    total = (row['manual_days'] or 0) + auto
+    conn.execute('UPDATE keywords SET exposure_count=? WHERE id=?', (total, keyword_id))
+
+    # 목표 달성/해제 처리
+    if total >= row['goal_days'] and not row['is_complete']:
+        conn.execute(
+            'UPDATE keywords SET is_complete=1, completed_at=? WHERE id=?',
+            (date.today().isoformat(), keyword_id)
+        )
+        kw = conn.execute('SELECT keyword FROM keywords WHERE id=?', (keyword_id,)).fetchone()
+        conn.execute('''
+            INSERT INTO notifications (client_id, keyword_id, type, message)
+            VALUES (?,?,?,?)
+        ''', (
+            row['client_id'], keyword_id, 'payment_request',
+            f'키워드 [{kw["keyword"]}] 누적 {row["goal_days"]}일 노출 달성! 결제 요청 시점입니다.'
+        ))
+        return True
+
+    # 수기 값을 낮춰 목표 미달이 되면 완료 상태 해제 (정정 대응)
+    if total < row['goal_days'] and row['is_complete']:
+        conn.execute(
+            'UPDATE keywords SET is_complete=0, completed_at=NULL WHERE id=?',
+            (keyword_id,)
+        )
+
+    return False
+
+
 def record_tracking(keyword_id: int, check_date: str,
                     pc_rank, pc_exposed: bool,
                     mobile_rank, mobile_exposed: bool) -> bool:
     """
     하루치 PC+모바일 순위를 저장합니다.
     PC 또는 모바일 중 하나라도 1~5위이면 노출일로 카운트합니다.
-    25일 달성 시 True 반환.
+    목표(기본 25일) 달성 시 True 반환.
     """
     is_exposed = 1 if (pc_exposed or mobile_exposed) else 0
 
@@ -173,38 +233,25 @@ def record_tracking(keyword_id: int, check_date: str,
               mobile_rank, 1 if mobile_exposed else 0,
               is_exposed))
 
-        # exposure_count 재계산
-        conn.execute('''
-            UPDATE keywords
-            SET exposure_count = (
-                SELECT COUNT(*) FROM tracking_logs
-                WHERE keyword_id=? AND is_exposed=1
-            )
-            WHERE id=?
-        ''', (keyword_id, keyword_id))
+        return _recompute_exposure(conn, keyword_id)
 
-        # 25일 달성 체크
-        row = conn.execute(
-            'SELECT exposure_count, goal_days, is_complete, client_id FROM keywords WHERE id=?',
-            (keyword_id,)
-        ).fetchone()
 
-        if row and row['exposure_count'] >= row['goal_days'] and not row['is_complete']:
-            conn.execute(
-                'UPDATE keywords SET is_complete=1, completed_at=? WHERE id=?',
-                (date.today().isoformat(), keyword_id)
-            )
-            kw = conn.execute('SELECT keyword FROM keywords WHERE id=?', (keyword_id,)).fetchone()
-            conn.execute('''
-                INSERT INTO notifications (client_id, keyword_id, type, message)
-                VALUES (?,?,?,?)
-            ''', (
-                row['client_id'], keyword_id, 'payment_request',
-                f'키워드 [{kw["keyword"]}] 누적 {row["goal_days"]}일 노출 달성! 결제 요청 시점입니다.'
-            ))
-            return True
+def set_manual_days(keyword_id: int, days: int) -> bool:
+    """
+    수기 시작 노출일을 설정합니다(구글시트 등에서 옮겨적기).
+    이후 자동 체크된 노출일이 이 값 위에 누적됩니다.
+    이번 설정으로 목표를 새로 달성하면 True 반환.
+    """
+    days = max(0, int(days))
+    with get_db() as conn:
+        conn.execute('UPDATE keywords SET manual_days=? WHERE id=?', (days, keyword_id))
+        return _recompute_exposure(conn, keyword_id)
 
-    return False
+
+def update_client_place_name(client_id: int, place_name: str):
+    """크롤링 중 확인된 업체명을 캐시합니다."""
+    with get_db() as conn:
+        conn.execute('UPDATE clients SET place_name=? WHERE id=?', (place_name, client_id))
 
 
 def get_tracking_logs(keyword_id: int, limit: int = 30):
@@ -278,8 +325,8 @@ def get_dashboard_data():
         ).fetchone()['c']
 
         clients_rows = conn.execute('''
-            SELECT c.id, c.name, c.place_url, c.place_id, c.memo, c.created_at,
-                   k.id as kw_id, k.keyword, k.exposure_count, k.goal_days,
+            SELECT c.id, c.name, c.place_url, c.place_id, c.place_name, c.memo, c.created_at,
+                   k.id as kw_id, k.keyword, k.exposure_count, k.goal_days, k.manual_days,
                    k.is_complete, k.started_at, k.completed_at
             FROM clients c
             LEFT JOIN keywords k ON k.client_id = c.id
@@ -300,7 +347,7 @@ def get_dashboard_data():
             if cid not in clients_map:
                 clients_map[cid] = {
                     'id': cid, 'name': r['name'], 'place_url': r['place_url'],
-                    'place_id': r['place_id'], 'memo': r['memo'],
+                    'place_id': r['place_id'], 'place_name': r['place_name'], 'memo': r['memo'],
                     'created_at': r['created_at'], 'keywords': []
                 }
             if r['kw_id']:
@@ -310,6 +357,7 @@ def get_dashboard_data():
                     'keyword': r['keyword'],
                     'exposure_count': r['exposure_count'],
                     'goal_days': r['goal_days'],
+                    'manual_days': r['manual_days'] or 0,
                     'is_complete': bool(r['is_complete']),
                     'started_at': r['started_at'],
                     'completed_at': r['completed_at'],
