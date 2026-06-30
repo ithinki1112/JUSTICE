@@ -18,9 +18,8 @@ RUN mkdir -p /data
 
 # DB는 영구 디스크(/data)에 저장 (재배포해도 데이터 보존)
 ENV DB_PATH=/data/justice.db
-ENV PORT=8000
-EXPOSE 8000
+# PORT는 호스팅 플랫폼(Railway 등)이 주입하는 값을 그대로 사용 (고정하면 충돌)
 
 # 스케줄러가 1개만 돌도록 worker 1개 + 동시 요청용 thread 8개.
-# 크롤링이 길어 timeout 넉넉히(120s). $PORT 확장을 위해 shell 형식 사용.
+# 크롤링이 길어 timeout 넉넉히(120s). $PORT 확장을 위해 shell 형식 사용(로컬은 8000).
 CMD gunicorn --workers 1 --threads 8 --timeout 120 --bind 0.0.0.0:${PORT:-8000} app:app
