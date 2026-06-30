@@ -1,8 +1,15 @@
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import date
 
-DB_PATH = 'justice.db'
+# 배포 시 영구 디스크 경로를 DB_PATH 환경변수로 지정 (예: /data/justice.db)
+DB_PATH = os.environ.get('DB_PATH', 'justice.db')
+
+# DB 파일이 들어갈 디렉터리 보장 (마운트 볼륨 등)
+_db_dir = os.path.dirname(DB_PATH)
+if _db_dir:
+    os.makedirs(_db_dir, exist_ok=True)
 
 
 @contextmanager

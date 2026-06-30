@@ -1,0 +1,12 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+tests/
+justice.db
+*.db-journal
+.claude/
+*.md

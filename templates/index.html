@@ -70,6 +70,9 @@
     <button class="btn btn-sm btn-outline-secondary" onclick="openAddClient()">
       <i class="bi bi-plus-circle"></i> 업체 등록
     </button>
+    <a class="btn btn-sm btn-outline-secondary" href="/logout" title="로그아웃">
+      <i class="bi bi-box-arrow-right"></i>
+    </a>
   </div>
 </nav>
 
@@ -218,6 +221,7 @@ async function api(url, opts={}) {
     headers: {'Content-Type':'application/json'},
     ...opts
   });
+  if (res.status === 401) { window.location = '/login'; throw new Error('로그인이 필요합니다'); }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || '오류가 발생했습니다');
   return data;
