@@ -447,11 +447,16 @@ async function checkSingle(kwId, kwText) {
   showToast(`[${kwText}] 체크 중...`, 'info');
   try {
     const r = await api('/api/check/single', {method:'POST', body: JSON.stringify({keyword_id: kwId})});
-    const rank = r.rank ? `${r.rank}위` : '미노출';
+    const fmt = (o, label) => {
+      if (!o) return `${label} 미확인`;
+      if (o.error) return `${label} 미확인`;
+      return o.rank ? `${label} ${o.rank}위` : `${label} 미노출`;
+    };
+    const detail = `${fmt(r.pc, 'PC')} / ${fmt(r.mobile, '모바일')}`;
     const exposed = r.is_exposed ? '✅ 노출' : '❌ 미노출';
-    const msg = r.error
+    const msg = (r.error && r.rank === null)
       ? `오류: ${r.error}`
-      : `${exposed} (${rank})${r.completed ? ' ★ 25일 달성!' : ''}`;
+      : `${exposed} · ${detail}${r.completed ? ' ★ 목표 달성!' : ''}`;
     showToast(`[${kwText}] ${msg}`, r.is_exposed ? 'success' : 'secondary');
     loadDashboard();
   } catch(e) {

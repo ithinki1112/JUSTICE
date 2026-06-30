@@ -9,7 +9,7 @@ from database import (
     get_all_active_keywords, record_tracking, get_tracking_logs,
     already_checked_today, get_notifications, mark_notification_read,
     mark_all_notifications_read, get_unread_count, get_dashboard_data,
-    set_manual_days, update_client_place_name
+    set_manual_days, update_client_place_info
 )
 from crawler import check_place_rank_sync, extract_place_id
 
@@ -24,10 +24,16 @@ crawl_status = {'running': False, 'last_run': None, 'last_result': ''}
 
 def crawl_and_record(kw):
     """키워드 1개를 크롤링하고 결과를 기록합니다. (result, completed) 반환."""
-    result = check_place_rank_sync(kw['keyword'], kw['place_id'], kw.get('place_name'))
-    # 처음 확인된 업체명은 캐시 (이후 검색 목록에서 이름으로 매칭)
-    if result.get('place_name') and not kw.get('place_name'):
-        update_client_place_name(kw['client_id'], result['place_name'])
+    result = check_place_rank_sync(
+        kw['keyword'], kw['place_id'],
+        kw.get('place_name'), kw.get('place_x'), kw.get('place_y')
+    )
+    # 처음 확인된 업체명/좌표는 캐시 (이후 검색 목록 이름 매칭 + 업체 위치 기준 조회)
+    if result.get('place_name') and (not kw.get('place_name') or not kw.get('place_x')):
+        update_client_place_info(
+            kw['client_id'], result.get('place_name'),
+            result.get('place_x'), result.get('place_y')
+        )
     today = date.today().isoformat()
     pc = result.get('pc', {})
     mb = result.get('mobile', {})
@@ -203,10 +209,10 @@ def api_check_single():
 
     result, completed = crawl_and_record(kw)
     pc = result.get('pc', {})
-    # 단일 체크 응답: 더 잘 노출된 쪽(PC/모바일)을 대표값으로
     mb = result.get('mobile', {})
-    best = pc if (pc.get('rank') or 999) <= (mb.get('rank') or 999) else mb
-    result['rank'] = best.get('rank')
+    # 대표 순위는 신뢰도 높은 PC 우선 (PC 미확인 시 모바일)
+    result['rank'] = pc.get('rank') if pc.get('rank') is not None else mb.get('rank')
+    # 노출 판정: PC 또는 모바일 중 하나라도 1~5위
     result['is_exposed'] = bool(pc.get('is_exposed') or mb.get('is_exposed'))
     # 양쪽 다 순위를 못 찾았고 오류가 있으면 대표 오류 노출
     if result['rank'] is None:
