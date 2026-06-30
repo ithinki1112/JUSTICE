@@ -39,10 +39,13 @@ DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 MOBILE_UA  = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
 
 # 항목별 {업체명, 광고여부}를 한 번에 추출하는 JS
+# 광고 마커: 항목 안에 정확히 "광고" 텍스트만 가진 leaf 요소(span.place_blind 등)가 있으면 광고.
+#   네이버는 "광고" 라벨을 영업시간 줄 끝에 붙이므로 텍스트 앞부분만 봐서는 잡히지 않는다.
 _EXTRACT_JS = """
 (els, nameSels) => els.map(el => {
-  const txt = (el.innerText || '').trim();
-  const isAd = /광고/.test(txt.slice(0, 30));
+  const isAd = Array.from(el.querySelectorAll('*')).some(
+    e => e.children.length === 0 && e.textContent.trim() === '광고'
+  );
   let name = '';
   for (const s of nameSels) {
     const n = el.querySelector(s);
