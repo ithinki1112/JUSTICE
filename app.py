@@ -346,7 +346,7 @@ def api_parse_url():
 
 if __name__ == '__main__':
     # 로컬/클라우드 공통 실행. 호스팅이 주입하는 PORT로 0.0.0.0 바인딩.
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 8080))
     debug = os.environ.get('FLASK_DEBUG', '0') == '1'
     print(f'[JUSTICE] starting on 0.0.0.0:{port} (debug={debug})', flush=True)
     app.run(host='0.0.0.0', debug=debug, port=port, use_reloader=False, threaded=True)

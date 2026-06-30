@@ -18,7 +18,9 @@ RUN mkdir -p /data
 
 # DB는 영구 디스크(/data)에 저장 (재배포해도 데이터 보존)
 ENV DB_PATH=/data/justice.db
-# PORT는 호스팅 플랫폼(Railway 등)이 주입하는 값을 그대로 사용 (고정하면 충돌)
 
-# Flask 내장 서버로 직접 실행 (스케줄러 1개 + threaded). 호스팅의 PORT를 그대로 사용.
+# 앱이 듣는 포트를 Railway가 감지하도록 EXPOSE. PORT가 주입되면 그 값을, 없으면 8080 사용.
+EXPOSE 8080
+
+# Flask 내장 서버로 직접 실행 (스케줄러 1개 + threaded).
 CMD ["python", "app.py"]
