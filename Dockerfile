@@ -20,6 +20,5 @@ RUN mkdir -p /data
 ENV DB_PATH=/data/justice.db
 # PORT는 호스팅 플랫폼(Railway 등)이 주입하는 값을 그대로 사용 (고정하면 충돌)
 
-# 스케줄러가 1개만 돌도록 worker 1개 + 동시 요청용 thread 8개.
-# 크롤링이 길어 timeout 넉넉히(120s). $PORT 확장을 위해 shell 형식 사용(로컬은 8000).
-CMD gunicorn --workers 1 --threads 8 --timeout 120 --bind 0.0.0.0:${PORT:-8000} app:app
+# Flask 내장 서버로 직접 실행 (스케줄러 1개 + threaded). 호스팅의 PORT를 그대로 사용.
+CMD ["python", "app.py"]
