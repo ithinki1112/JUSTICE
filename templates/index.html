@@ -257,6 +257,7 @@ function renderClients(clients) {
         <i class="bi bi-building-fill text-success"></i>
         <strong>${esc(c.name)}</strong>
         <span class="place-id ms-1">ID: ${esc(c.place_id)}</span>
+        ${c.place_name ? `<span class="place-id ms-1" title="순위 매칭에 사용되는 업체명">· ${esc(c.place_name)}</span>` : ''}
         ${c.memo ? `<span class="text-muted small ms-2">${esc(c.memo)}</span>` : ''}
         <div class="ms-auto d-flex gap-2">
           <a href="${esc(c.place_url)}" target="_blank" class="btn btn-sm btn-outline-success py-0 px-2">
@@ -308,10 +309,14 @@ function renderKeywordRow(k) {
       </div>
       <span class="small text-muted" style="min-width:80px">
         ${k.exposure_count} / ${k.goal_days}일
+        ${k.manual_days ? `<span class="text-info" title="수기 입력 시작 일수">(수기 ${k.manual_days})</span>` : ''}
       </span>
       <span class="d-flex gap-1">${todayBadges}</span>
       ${k.started_at ? `<span class="small text-muted">시작: ${k.started_at}</span>` : ''}
       ${isDone ? `<span class="small text-warning fw-bold">완료: ${k.completed_at}</span>` : ''}
+      <button class="btn btn-sm btn-outline-info py-0 px-2" onclick="setManualDays(${k.id}, ${k.manual_days || 0}, '${esc(k.keyword)}')" title="수기 노출일 입력">
+        <i class="bi bi-pencil-square"></i>
+      </button>
       <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="viewLogs(${k.id},'${esc(k.keyword)}')">
         <i class="bi bi-graph-up"></i>
       </button>
@@ -517,6 +522,28 @@ async function markAllRead() {
     el.classList.remove('unread'); el.classList.add('read');
   });
   loadDashboard();
+}
+
+// ── 수기 노출일 입력 ──────────────────────────────────────────────────────────
+
+async function setManualDays(kwId, current, kwText) {
+  const v = prompt(
+    `[${kwText}] 지금까지 노출된 누적 일수를 입력하세요.\n` +
+    `(구글시트 등에 적어두신 값. 이 값을 기준으로 이후 자동 체크가 더해집니다.)`,
+    current
+  );
+  if (v === null) return;
+  const days = parseInt(v, 10);
+  if (isNaN(days) || days < 0) { showToast('0 이상의 숫자를 입력하세요', 'danger'); return; }
+  try {
+    const r = await api(`/api/keywords/${kwId}/manual-days`, {
+      method: 'POST', body: JSON.stringify({ days })
+    });
+    showToast(`수기 노출일 ${days}일 저장됨${r.completed ? ' ★ 목표 달성!' : ''}`, 'success');
+    loadDashboard();
+  } catch(e) {
+    showToast(e.message, 'danger');
+  }
 }
 
 // ── 트래킹 로그 ───────────────────────────────────────────────────────────────
