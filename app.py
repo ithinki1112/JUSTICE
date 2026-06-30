@@ -60,7 +60,7 @@ def crawl_and_record(kw):
 # ── 스케줄러 ──────────────────────────────────────────────────────────────────
 
 def run_daily_check():
-    """매일 오전 9시 자동 순위 체크"""
+    """매일 낮 12시 자동 순위 체크"""
     if crawl_lock.locked():
         return
     with crawl_lock:
@@ -91,11 +91,11 @@ try:
 except Exception as e:
     print(f'[JUSTICE] init_db FAILED: {e!r}', flush=True)
 
-# 매일 오전 9시 자동 체크 스케줄러 (실패해도 앱은 계속 실행)
+# 매일 낮 12시(정오) 자동 체크 스케줄러 (실패해도 앱은 계속 실행)
 scheduler = None
 try:
     scheduler = BackgroundScheduler(timezone='Asia/Seoul')
-    scheduler.add_job(run_daily_check, 'cron', hour=9, minute=0, id='daily_check')
+    scheduler.add_job(run_daily_check, 'cron', hour=12, minute=0, id='daily_check')
     scheduler.start()
     print('[JUSTICE] scheduler started', flush=True)
 except Exception as e:
