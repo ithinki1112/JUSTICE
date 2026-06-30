@@ -245,10 +245,14 @@ def record_tracking(keyword_id: int, check_date: str,
                     mobile_rank, mobile_exposed: bool) -> bool:
     """
     하루치 PC+모바일 순위를 저장합니다.
-    PC 또는 모바일 중 하나라도 1~5위이면 노출일로 카운트합니다.
+    노출 판정은 PC 우선: PC 순위를 읽었으면 PC 기준(1~5위),
+    PC를 읽지 못한 경우에만 모바일로 판정합니다.
     목표(기본 25일) 달성 시 True 반환.
     """
-    is_exposed = 1 if (pc_exposed or mobile_exposed) else 0
+    if pc_rank is not None:
+        is_exposed = 1 if pc_exposed else 0
+    else:
+        is_exposed = 1 if mobile_exposed else 0
 
     with get_db() as conn:
         conn.execute('''

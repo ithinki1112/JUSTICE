@@ -41,9 +41,14 @@ MOBILE_UA  = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit
 # 따라서 클래스에 의존하지 않고, 항목 내부에 "업체명과 정확히 일치하는 텍스트(leaf)"가
 # 있는지로 매칭한다(부분일치로 동명 다른 지점을 잘못 잡는 문제도 방지).
 #
+# 항목별 {업체명, 광고여부, 일치여부}를 계산하는 JS.
 # 광고 마커: 항목 안에 정확히 "광고" 텍스트만 가진 leaf 요소(span.place_blind 등).
-_MATCH_JS = """
-(els, targetNorm) => {
+# name: 가상 스크롤 누적 수집 시 중복 제거 식별자 (클래스 후보 → 없으면 첫 줄).
+_NAME_SELS = ['.YwYLL', '.q2LdB', '.TYaxT', '.place_bluelink', '.CMy2_', '.tit']
+_COLLECT_JS = """
+(els, args) => {
+  const targetNorm = args.t;
+  const NSEL = args.nsel;
   const norm = s => (s || '').replace(/\\s+/g, '').toLowerCase();
   return els.map(el => {
     const leaves = Array.from(el.querySelectorAll('*')).filter(e => e.children.length === 0);
@@ -54,8 +59,22 @@ _MATCH_JS = """
         if (norm(e.textContent) === targetNorm) { isMatch = true; break; }
       }
     }
-    return { isAd, isMatch };
+    let name = '';
+    for (const s of NSEL) { const n = el.querySelector(s); if (n && n.textContent.trim()) { name = n.textContent.trim(); break; } }
+    if (!name) name = (el.innerText || '').split(String.fromCharCode(10))[0].trim();
+    return { name, isAd, isMatch };
   });
+}
+"""
+
+# 목록 스크롤 컨테이너를 이동시키는 JS (위로 / 아래로 step px)
+_SCROLL_JS = """
+(arg) => {
+  const c = document.querySelector('#_pcmap_list_scroll_container')
+         || document.querySelector('#_list_scroll_container')
+         || (document.querySelector('.Ryr1F') ? document.querySelector('.Ryr1F').parentElement : null);
+  if (arg.top) { if (c) c.scrollTop = 0; else window.scrollTo(0, 0); return; }
+  if (c) c.scrollTop += arg.step; else window.scrollBy(0, arg.step);
 }
 """
 
@@ -124,35 +143,77 @@ async def _resolve_place_info(page, place_id: str):
 
 # ── 목록에서 순위 찾기 ─────────────────────────────────────────────────────────
 
+async def _collect_items(page_or_frame, item_sel: str, target: str,
+                         step: int = 350, sleep: float = 0.7,
+                         stable_max: int = 5, max_rounds: int = 40):
+    """가상 스크롤 목록을 위에서부터 조금씩 내리며 항목을 순서대로 누적합니다.
+       (끝까지 한 번에 내리면 상위 항목이 DOM에서 제거되므로, 조금씩 내리며 모아야 함)
+       업체명+광고여부로 중복 제거. 우리 업체를 찾으면 즉시 중단."""
+    try:
+        await page_or_frame.evaluate(_SCROLL_JS, {'top': True, 'step': 0})
+        await asyncio.sleep(0.4)
+    except Exception:
+        pass
+
+    seen, keys, stable = [], set(), 0
+    arg = {'t': target, 'nsel': _NAME_SELS}
+    for _ in range(max_rounds):
+        try:
+            batch = await page_or_frame.eval_on_selector_all(item_sel, _COLLECT_JS, arg)
+        except Exception:
+            batch = []
+        grew = False
+        for d in batch:
+            name = d.get('name') or ''
+            k = name + ('|A' if d.get('isAd') else '|O')
+            if name and k not in keys:
+                keys.add(k)
+                seen.append(d)
+                grew = True
+        if any(d.get('isMatch') for d in seen):
+            break
+        stable = 0 if grew else stable + 1
+        if stable >= stable_max:
+            break
+        try:
+            await page_or_frame.evaluate(_SCROLL_JS, {'top': False, 'step': step})
+        except Exception:
+            break
+        await asyncio.sleep(sleep)
+    return seen
+
+
 async def _find_rank(page_or_frame, target_name: str) -> dict:
     """현재 페이지/프레임의 검색 목록에서 target_name의 자연 순위를 찾습니다."""
     result = {'rank': None, 'is_exposed': False, 'checked': 0, 'error': None}
     target = _norm(target_name)
 
-    # 목록 항목이 하나라도 뜰 때까지 한 번만 대기 (후보 셀렉터 union)
+    # 목록 항목이 하나라도 뜰 때까지 대기
     try:
         await page_or_frame.wait_for_selector(', '.join(ITEM_SELECTORS), timeout=8000)
     except PlaywrightTimeout:
         result['error'] = '업체 목록 없음 (셀렉터 업데이트 필요)'
         return result
 
-    items = []
+    # 항목이 잡히는 셀렉터 선택
+    item_sel = None
     for sel in ITEM_SELECTORS:
         try:
-            data = await page_or_frame.eval_on_selector_all(sel, _MATCH_JS, target)
+            if await page_or_frame.eval_on_selector_all(sel, '(els) => els.length'):
+                item_sel = sel
+                break
         except Exception:
             continue
-        if data:
-            items = data
-            break
-
-    if not items:
+    if not item_sel:
         result['error'] = '업체 목록 없음 (셀렉터 업데이트 필요)'
         return result
 
+    # 스크롤하며 항목을 순서대로 누적 (하위 순위까지 정확히)
+    items = await _collect_items(page_or_frame, item_sel, target)
+
     # 광고 슬롯만 제외하고, 네이버가 표시하는 자연순위 위치 그대로 카운트
     organic = 0
-    for d in items[:50]:
+    for d in items:
         result['checked'] += 1
         if d.get('isAd'):
             continue
@@ -217,7 +278,7 @@ async def check_place_rank_both(keyword: str, place_id: str,
                                  place_y: str | None = None,
                                  headless: bool = True) -> dict:
     """
-    PC와 모바일 순위를 확인합니다.
+    PC(pcmap) 기준 현재 순위를 확인합니다. (모바일은 PC와 순위가 달라 혼란만 주므로 사용 안 함)
 
     place_name/place_x/place_y가 없으면 place_id로 1회 조회합니다.
     좌표가 있으면 업체 위치 기준으로 검색해 지역 순위를 일관되게 측정합니다.
@@ -226,11 +287,11 @@ async def check_place_rank_both(keyword: str, place_id: str,
         {
           'place_name': str|None, 'place_x': str|None, 'place_y': str|None,
           'pc':     {'rank': int|None, 'is_exposed': bool, 'error': str|None},
-          'mobile': {'rank': int|None, 'is_exposed': bool, 'error': str|None},
+          'mobile': {'rank': None, ...},   # 하위 호환용(사용 안 함)
         }
     """
+    none_mb = {'rank': None, 'is_exposed': False, 'error': None}
     async with async_playwright() as p:
-        # PC 브라우저
         pc_browser = await p.chromium.launch(headless=headless)
         pc_ctx = await pc_browser.new_context(
             user_agent=DESKTOP_UA,
@@ -239,19 +300,6 @@ async def check_place_rank_both(keyword: str, place_id: str,
         )
         pc_page = await pc_ctx.new_page()
         await pc_page.add_init_script(
-            "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
-        )
-
-        # 모바일 브라우저
-        mb_browser = await p.chromium.launch(headless=headless)
-        mb_ctx = await mb_browser.new_context(
-            user_agent=MOBILE_UA,
-            locale='ko-KR', timezone_id='Asia/Seoul',
-            viewport={'width': 390, 'height': 844},
-            is_mobile=True,
-        )
-        mb_page = await mb_ctx.new_page()
-        await mb_page.add_init_script(
             "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
         )
 
@@ -266,25 +314,18 @@ async def check_place_rank_both(keyword: str, place_id: str,
             if not place_name:
                 err = {'rank': None, 'is_exposed': False, 'error': '업체명을 확인할 수 없음 (place_id 확인 필요)'}
                 return {'place_name': None, 'place_x': None, 'place_y': None,
-                        'pc': dict(err), 'mobile': dict(err)}
+                        'pc': dict(err), 'mobile': dict(none_mb)}
 
-            pc_result, mb_result = await asyncio.gather(
-                _check_pc(pc_page, keyword, place_name, place_x, place_y),
-                _check_mobile(mb_page, keyword, place_name, place_x, place_y),
-                return_exceptions=True
-            )
-
-            if isinstance(pc_result, Exception):
-                pc_result = {'rank': None, 'is_exposed': False, 'error': f'PC: {pc_result}'}
-            if isinstance(mb_result, Exception):
-                mb_result = {'rank': None, 'is_exposed': False, 'error': f'모바일: {mb_result}'}
+            try:
+                pc_result = await _check_pc(pc_page, keyword, place_name, place_x, place_y)
+            except Exception as e:
+                pc_result = {'rank': None, 'is_exposed': False, 'error': f'PC: {e}'}
 
             return {'place_name': place_name, 'place_x': place_x, 'place_y': place_y,
-                    'pc': pc_result, 'mobile': mb_result}
+                    'pc': pc_result, 'mobile': dict(none_mb)}
 
         finally:
             await pc_browser.close()
-            await mb_browser.close()
 
 
 def check_place_rank_sync(keyword: str, place_id: str,

@@ -286,11 +286,10 @@ function renderClients(clients) {
   `).join('');
 }
 
-function rankBadge(rank, exposed, platform) {
-  if (rank === null || rank === undefined) return `<span class="badge bg-light text-muted">${platform} 미확인</span>`;
-  const icon = platform === 'PC' ? '🖥' : '📱';
-  if (exposed) return `<span class="badge badge-exposed">${icon} ${platform} ${rank}위</span>`;
-  return `<span class="badge bg-light text-muted">${icon} ${platform} ${rank}위</span>`;
+function currentRankBadge(rank, exposed) {
+  if (rank === null || rank === undefined) return `<span class="badge bg-light text-muted">현재 순위 미확인</span>`;
+  const cls = exposed ? 'badge-exposed' : 'bg-light text-muted';
+  return `<span class="badge ${cls}">📍 현재 순위 ${rank}위</span>`;
 }
 
 function renderKeywordRow(k) {
@@ -303,10 +302,7 @@ function renderKeywordRow(k) {
   else { badgeCls = 'badge-active'; badgeText = '진행중'; }
   const barCls = pending ? 'done' : '';
 
-  const todayBadges = `
-    ${rankBadge(k.today_pc_rank, k.today_pc_exposed, 'PC')}
-    ${rankBadge(k.today_mobile_rank, k.today_mobile_exposed, '모바일')}
-  `;
+  const todayBadges = currentRankBadge(k.today_pc_rank, k.today_pc_exposed);
 
   // 결제완료 버튼: 결제 대기일 때만 표시하고 깜빡임
   const payBtn = pending
@@ -465,16 +461,11 @@ async function checkSingle(kwId, kwText) {
   showToast(`[${kwText}] 체크 중...`, 'info');
   try {
     const r = await api('/api/check/single', {method:'POST', body: JSON.stringify({keyword_id: kwId})});
-    const fmt = (o, label) => {
-      if (!o) return `${label} 미확인`;
-      if (o.error) return `${label} 미확인`;
-      return o.rank ? `${label} ${o.rank}위` : `${label} 미노출`;
-    };
-    const detail = `${fmt(r.pc, 'PC')} / ${fmt(r.mobile, '모바일')}`;
+    const rankStr = (r.rank === null || r.rank === undefined) ? '미노출' : `현재 ${r.rank}위`;
     const exposed = r.is_exposed ? '✅ 노출' : '❌ 미노출';
     const msg = (r.error && r.rank === null)
       ? `오류: ${r.error}`
-      : `${exposed} · ${detail}${r.completed ? ' ★ 목표 달성!' : ''}`;
+      : `${exposed} · ${rankStr}${r.completed ? ' ★ 목표 달성!' : ''}`;
     showToast(`[${kwText}] ${msg}`, r.is_exposed ? 'success' : 'secondary');
     loadDashboard();
   } catch(e) {
@@ -591,17 +582,16 @@ async function viewLogs(kwId, kwText) {
   if (!logs.length) {
     document.getElementById('logModalBody').innerHTML = '<p class="text-muted">기록이 없습니다</p>';
   } else {
-    const fmtRank = (rank, exposed, label) => {
-      if (rank === null || rank === undefined) return `<span class="text-muted small">${label} 미확인</span>`;
+    const fmtRank = (rank, exposed) => {
+      if (rank === null || rank === undefined) return `<span class="text-muted">미노출</span>`;
       return exposed
-        ? `<span class="text-success fw-bold">${label} ${rank}위 ✅</span>`
-        : `<span class="text-muted">${label} ${rank}위</span>`;
+        ? `<span class="text-success fw-bold">${rank}위 ✅</span>`
+        : `<span class="text-muted">${rank}위</span>`;
     };
     const rows = logs.map(l => `
       <tr>
         <td>${l.check_date}</td>
-        <td>${fmtRank(l.pc_rank, l.pc_exposed, '🖥PC')}</td>
-        <td>${fmtRank(l.mobile_rank, l.mobile_exposed, '📱모바일')}</td>
+        <td>${fmtRank(l.pc_rank, l.pc_exposed)}</td>
         <td>
           <span class="log-dot ${l.is_exposed ? 'exposed' : 'not-exposed'}"></span>
           ${l.is_exposed ? '<span class="text-success fw-bold">노출일 카운트</span>' : '<span class="text-muted">미카운트</span>'}
@@ -609,9 +599,9 @@ async function viewLogs(kwId, kwText) {
       </tr>
     `).join('');
     document.getElementById('logModalBody').innerHTML = `
-      <p class="text-muted small mb-2">PC 또는 모바일 중 하나라도 1~5위이면 노출일로 카운트됩니다.</p>
+      <p class="text-muted small mb-2">현재 순위가 1~5위이면 노출일로 카운트됩니다.</p>
       <table class="table table-sm table-hover">
-        <thead><tr><th>날짜</th><th>PC 순위</th><th>모바일 순위</th><th>카운트</th></tr></thead>
+        <thead><tr><th>날짜</th><th>현재 순위</th><th>카운트</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     `;

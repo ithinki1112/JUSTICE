@@ -89,6 +89,18 @@ def test_non_exposed_day_does_not_count(db):
     assert _kw(db["kid"])["exposure_count"] == 0
 
 
+def test_exposure_is_pc_priority(db):
+    # PC 13위(미노출) + 모바일 5위(노출)면, PC 우선이라 노출일로 카운트하지 않음
+    database.record_tracking(db["kid"], date.today().isoformat(), 13, False, 5, True)
+    assert _kw(db["kid"])["exposure_count"] == 0
+
+
+def test_exposure_falls_back_to_mobile_when_pc_missing(db):
+    # PC를 읽지 못한 경우(rank None)에는 모바일로 판정
+    database.record_tracking(db["kid"], date.today().isoformat(), None, False, 3, True)
+    assert _kw(db["kid"])["exposure_count"] == 1
+
+
 def test_same_day_recheck_is_idempotent(db):
     today = date.today().isoformat()
     database.record_tracking(db["kid"], today, 3, True, None, False)
