@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import threading
 from datetime import date, timedelta
@@ -81,12 +83,22 @@ def run_daily_check():
         crawl_status['running'] = False
 
 
-# DB 초기화/마이그레이션 — gunicorn 등 import 시점에도 실행되도록 모듈 레벨에서 호출
-init_db()
+# DB 초기화/마이그레이션 (실패해도 앱은 떠서 원인 파악이 가능하도록 방어)
+print('[JUSTICE] init_db ...', flush=True)
+try:
+    init_db()
+    print('[JUSTICE] init_db OK', flush=True)
+except Exception as e:
+    print(f'[JUSTICE] init_db FAILED: {e!r}', flush=True)
 
+# 매일 오전 9시 자동 체크 스케줄러 (실패해도 앱은 계속 실행)
 scheduler = BackgroundScheduler(timezone='Asia/Seoul')
-scheduler.add_job(run_daily_check, 'cron', hour=9, minute=0, id='daily_check')
-scheduler.start()
+try:
+    scheduler.add_job(run_daily_check, 'cron', hour=9, minute=0, id='daily_check')
+    scheduler.start()
+    print('[JUSTICE] scheduler started', flush=True)
+except Exception as e:
+    print(f'[JUSTICE] scheduler FAILED: {e!r}', flush=True)
 
 
 # ── 인증 (공용 비밀번호 로그인) ─────────────────────────────────────────────────

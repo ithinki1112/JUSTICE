@@ -14,6 +14,8 @@
   크롤링이 안 되면 ITEM_SELECTORS / NAME_SELECTORS 를 업데이트하세요.
 """
 
+from __future__ import annotations
+
 import asyncio
 import random
 import re
