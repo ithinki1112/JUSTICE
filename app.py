@@ -288,10 +288,13 @@ def api_check_single():
     result, completed = crawl_and_record(kw)
     pc = result.get('pc', {})
     mb = result.get('mobile', {})
-    # 대표 순위는 신뢰도 높은 PC 우선 (PC 미확인 시 모바일)
-    result['rank'] = pc.get('rank') if pc.get('rank') is not None else mb.get('rank')
-    # 노출 판정: PC 또는 모바일 중 하나라도 1~5위
-    result['is_exposed'] = bool(pc.get('is_exposed') or mb.get('is_exposed'))
+    # 대표 순위/노출 판정 모두 PC 우선 (PC 미확인 시에만 모바일)
+    if pc.get('rank') is not None:
+        result['rank'] = pc.get('rank')
+        result['is_exposed'] = bool(pc.get('is_exposed'))
+    else:
+        result['rank'] = mb.get('rank')
+        result['is_exposed'] = bool(mb.get('is_exposed'))
     # 양쪽 다 순위를 못 찾았고 오류가 있으면 대표 오류 노출
     if result['rank'] is None:
         result['error'] = pc.get('error') or mb.get('error')
