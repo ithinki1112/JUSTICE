@@ -1,6 +1,10 @@
+import os
 import threading
-from datetime import date
-from flask import Flask, render_template, request, jsonify
+from datetime import date, timedelta
+from flask import (
+    Flask, render_template, render_template_string, request, jsonify,
+    session, redirect, url_for
+)
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from database import (
@@ -14,6 +18,12 @@ from database import (
 from crawler import check_place_rank_sync, extract_place_id
 
 app = Flask(__name__)
+
+# ── 인증/세션 설정 ──────────────────────────────────────────────────────────────
+# 운영 시 환경변수로 반드시 설정: SECRET_KEY(무작위 문자열), APP_PASSWORD(공용 비밀번호)
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
+app.permanent_session_lifetime = timedelta(days=30)
+APP_PASSWORD = os.environ.get('APP_PASSWORD', 'justice1234')
 
 # 동시에 여러 크롤링이 실행되지 않도록 락 사용
 crawl_lock = threading.Lock()
@@ -72,9 +82,70 @@ def run_daily_check():
         crawl_status['running'] = False
 
 
+# DB 초기화/마이그레이션 — gunicorn 등 import 시점에도 실행되도록 모듈 레벨에서 호출
+init_db()
+
 scheduler = BackgroundScheduler(timezone='Asia/Seoul')
 scheduler.add_job(run_daily_check, 'cron', hour=9, minute=0, id='daily_check')
 scheduler.start()
+
+
+# ── 인증 (공용 비밀번호 로그인) ─────────────────────────────────────────────────
+
+LOGIN_HTML = """
+<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JUSTICE 로그인</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+ body{background:#f4f6f9;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:'Segoe UI',sans-serif}
+ .login-card{background:#fff;border-radius:14px;box-shadow:0 4px 20px rgba(0,0,0,.08);padding:2.5rem;width:340px;border-top:4px solid #03C75A}
+ .brand{color:#03C75A;font-weight:800;font-size:1.5rem;text-align:center;margin-bottom:.25rem}
+ .sub{color:#999;font-size:.85rem;text-align:center;margin-bottom:1.5rem}
+ .btn-naver{background:#03C75A;color:#fff;border:none;width:100%}
+ .btn-naver:hover{background:#028a40;color:#fff}
+</style></head><body>
+ <div class="login-card">
+   <div class="brand"><i class="bi"></i>JUSTICE</div>
+   <div class="sub">네이버 플레이스 순위 관리</div>
+   {% if error %}<div class="alert alert-danger py-2 small">{{ error }}</div>{% endif %}
+   <form method="post">
+     <input type="password" name="password" class="form-control mb-3" placeholder="비밀번호" autofocus required>
+     <button class="btn btn-naver py-2" type="submit">로그인</button>
+   </form>
+ </div>
+</body></html>
+"""
+
+
+@app.before_request
+def require_login():
+    # 로그인 화면과 정적 파일은 인증 예외
+    if request.endpoint in ('login', 'static'):
+        return
+    if not session.get('authed'):
+        if request.path.startswith('/api/'):
+            return jsonify({'error': '로그인이 필요합니다', 'auth': False}), 401
+        return redirect(url_for('login'))
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        if (request.form.get('password') or '') == APP_PASSWORD:
+            session.permanent = True
+            session['authed'] = True
+            return redirect(url_for('index'))
+        return render_template_string(LOGIN_HTML, error='비밀번호가 올바르지 않습니다'), 401
+    if session.get('authed'):
+        return redirect(url_for('index'))
+    return render_template_string(LOGIN_HTML, error=None)
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
 
 
 # ── HTML ──────────────────────────────────────────────────────────────────────
@@ -259,5 +330,7 @@ def api_parse_url():
 
 
 if __name__ == '__main__':
-    init_db()
-    app.run(debug=True, port=5000, use_reloader=False)
+    # 로컬 실행용. 운영(클라우드)에서는 gunicorn으로 app:app 을 구동합니다.
+    port = int(os.environ.get('PORT', 5000))
+    debug = os.environ.get('FLASK_DEBUG', '1') == '1'
+    app.run(host='0.0.0.0', debug=debug, port=port, use_reloader=False)

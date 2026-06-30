@@ -46,6 +46,40 @@ python app.py
 
 브라우저에서 <http://localhost:5000> 으로 접속하세요.
 
+## 배포 (직원들과 링크로 공유)
+
+직원들이 인터넷에서 접속할 수 있도록 클라우드(Render/Railway)에 올릴 수 있습니다.
+Playwright(크롬)가 포함된 `Dockerfile`로 빌드됩니다.
+
+### 로그인 (공용 비밀번호)
+
+외부 공개 시 모든 페이지·API가 로그인 뒤로 보호됩니다. 환경변수로 설정합니다.
+
+| 환경변수 | 설명 |
+|----------|------|
+| `APP_PASSWORD` | 직원들과 공유할 공용 비밀번호 |
+| `SECRET_KEY` | 세션 암호화용 무작위 문자열 |
+| `DB_PATH` | SQLite 파일 경로 (영구 디스크, 예: `/data/justice.db`) |
+| `PORT` | 서버 포트 (호스팅 플랫폼이 자동 주입) |
+
+### Render 배포 (요약)
+
+1. 이 저장소를 GitHub에 푸시 (이미 완료).
+2. [Render](https://render.com) → **New + → Blueprint** → 저장소 선택 (`render.yaml` 자동 인식).
+3. `APP_PASSWORD` 값 입력, 나머지는 자동.
+4. 배포 완료 후 나오는 URL을 직원들과 공유 (URL + 비밀번호).
+
+> 상시 가동·영구 디스크는 유료 플랜(Starter)이 필요합니다. 무료 플랜은 일정 시간 후
+> 잠들고 디스크가 없어 데이터가 보존되지 않습니다.
+
+로컬에서 운영 구성을 테스트하려면:
+
+```bash
+docker build -t justice .
+docker run -p 8000:8000 -e APP_PASSWORD=비밀번호 -e SECRET_KEY=아무문자열 \
+  -v "$PWD/data:/data" justice
+```
+
 ## 프로젝트 구조
 
 | 파일 | 설명 |
@@ -56,12 +90,15 @@ python app.py
 | `templates/` | HTML 템플릿 |
 | `static/` | 정적 자산 (CSS/JS) |
 | `tests/` | 단위 테스트 |
+| `Dockerfile` | 배포용 컨테이너 이미지 (Playwright 포함) |
+| `render.yaml` | Render 배포 Blueprint |
 | `justice.db` | SQLite 데이터베이스 (로컬 생성, 버전 관리 제외) |
 
 ## 참고
 
 네이버는 페이지의 CSS 클래스명을 자주 변경합니다. 크롤링이 동작하지 않으면
-`crawler.py` 상단의 `PC_SELECTORS` / `MOBILE_SELECTORS`를 업데이트하세요.
+`crawler.py` 상단의 `ITEM_SELECTORS`(목록 항목 셀렉터)를 업데이트하세요. 업체명은
+클래스에 의존하지 않고 "정확히 일치하는 텍스트"로 매칭합니다.
 
 ## 테스트
 
