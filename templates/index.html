@@ -267,8 +267,13 @@ async function loadDashboard() {
   pollCrawlStatus();
 }
 
+let lastClientsJson = '';
 function renderClients(clients) {
   const container = document.getElementById('clientList');
+  // 데이터가 그대로면 다시 그리지 않음 (버튼 깜빡임/클릭 씹힘 방지)
+  const json = JSON.stringify(clients);
+  if (json === lastClientsJson && container.children.length) return;
+  lastClientsJson = json;
   if (!clients.length) {
     container.innerHTML = `<div class="text-center text-muted py-5">
       <i class="bi bi-building fs-1 d-block mb-2"></i>등록된 업체가 없습니다
@@ -496,14 +501,17 @@ async function checkSingle(kwId, kwText) {
 }
 
 let pollTimer;
+let wasRunning = false;
 async function pollCrawlStatus() {
   clearTimeout(pollTimer);
-  const status = await api('/api/check/status');
+  let status;
+  try { status = await api('/api/check/status'); } catch(e) { return; }
   const label = document.getElementById('lastRunLabel');
   const btn = document.getElementById('btnCheck');
   const spinner = document.getElementById('checkSpinner');
 
   if (status.running) {
+    wasRunning = true;
     label.innerHTML = '<span class="checking"><i class="bi bi-circle-fill"></i> 체크 중...</span>';
     btn.disabled = true;
     spinner.classList.add('active');
@@ -511,11 +519,11 @@ async function pollCrawlStatus() {
   } else {
     btn.disabled = false;
     spinner.classList.remove('active');
-    if (status.last_run) {
-      label.textContent = `마지막 체크: ${status.last_run}`;
+    label.textContent = status.last_run ? `마지막 체크: ${status.last_run}` : '';
+    // 방금 크롤링이 끝났을 때만 1회 새로고침 (무한 재렌더 방지)
+    if (wasRunning) {
+      wasRunning = false;
       loadDashboard();
-    } else {
-      label.textContent = '';
     }
   }
 }
