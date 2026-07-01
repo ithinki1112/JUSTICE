@@ -75,7 +75,14 @@
   <span class="text-muted small ms-2">네이버 플레이스 순위 보장 관리</span>
   <div class="ms-auto d-flex align-items-center gap-3">
     <span class="text-muted small" id="lastRunLabel"></span>
-    <button class="btn btn-sm btn-outline-secondary" id="themeToggle" onclick="toggleTheme()"></button>
+    <div class="btn-group btn-group-sm" role="group" aria-label="테마 전환">
+      <button type="button" class="btn btn-outline-secondary" id="themeBtnLight" onclick="applyTheme('light')">
+        <i class="bi bi-sun-fill"></i> 화이트모드
+      </button>
+      <button type="button" class="btn btn-outline-secondary" id="themeBtnDark" onclick="applyTheme('dark')">
+        <i class="bi bi-moon-stars-fill"></i> 다크모드
+      </button>
+    </div>
     <button class="btn btn-sm btn-naver" id="btnCheck" onclick="runManualCheck()">
       <i class="bi bi-arrow-clockwise"></i>
       <span class="crawl-spinner spinner-border spinner-border-sm" id="checkSpinner" role="status"></span>
@@ -256,14 +263,12 @@ const modals = {};
 function applyTheme(t) {
   document.documentElement.setAttribute('data-bs-theme', t);
   localStorage.setItem('theme', t);
-  const btn = document.getElementById('themeToggle');
-  if (btn) btn.innerHTML = (t === 'dark')
-    ? '<i class="bi bi-sun-fill"></i> 화이트모드'
-    : '<i class="bi bi-moon-stars-fill"></i> 다크모드';
-}
-function toggleTheme() {
-  const cur = document.documentElement.getAttribute('data-bs-theme') || 'light';
-  applyTheme(cur === 'dark' ? 'light' : 'dark');
+  const lb = document.getElementById('themeBtnLight');
+  const db = document.getElementById('themeBtnDark');
+  if (lb && db) {
+    lb.className = 'btn ' + (t === 'light' ? 'btn-naver' : 'btn-outline-secondary');
+    db.className = 'btn ' + (t === 'dark' ? 'btn-naver' : 'btn-outline-secondary');
+  }
 }
 applyTheme(localStorage.getItem('theme') || 'light');
 
