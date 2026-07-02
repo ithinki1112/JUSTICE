@@ -67,6 +67,13 @@
   @keyframes blink { 0%,100%{opacity:1; box-shadow:0 0 0 0 rgba(245,166,35,.7)} 50%{opacity:.55; box-shadow:0 0 0 4px rgba(245,166,35,0)} }
   .blink { animation: blink 1s ease-in-out infinite; }
   .row-pending { background: rgba(245,166,35,.08); border-left: 3px solid #f5a623; }
+  /* 다크모드: 투명 외곽선 버튼을 은은한 색 버튼으로 (가시성 향상, hover 시 진해짐) */
+  [data-bs-theme="dark"] .btn-outline-secondary:not(:hover),
+  [data-bs-theme="dark"] .btn-outline-dark:not(:hover) { background:#232e4a; border-color:#3c4a72; color:#d3dcf1; }
+  [data-bs-theme="dark"] .btn-outline-primary:not(:hover) { background:#1e2a54; border-color:#4056ad; color:#aabdff; }
+  [data-bs-theme="dark"] .btn-outline-success:not(:hover) { background:#123726; border-color:#1f7350; color:#5fe0aa; }
+  [data-bs-theme="dark"] .btn-outline-danger:not(:hover)  { background:#3a1d24; border-color:#8c3844; color:#ff9aa2; }
+  [data-bs-theme="dark"] .btn-outline-info:not(:hover)    { background:#123540; border-color:#1f6f86; color:#66d8f2; }
 </style>
 </head>
 <body>
