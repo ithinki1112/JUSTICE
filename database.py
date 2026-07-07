@@ -144,6 +144,21 @@ def get_client(client_id: int):
         return dict(row) if row else None
 
 
+def update_client(client_id: int, name: str, place_url: str, place_id: str, memo: str = ''):
+    """업체 정보 수정. place_id가 바뀌면 캐시된 업체명/좌표를 초기화(다음 크롤 시 재조회)."""
+    with get_db() as conn:
+        old = conn.execute('SELECT place_id FROM clients WHERE id=?', (client_id,)).fetchone()
+        if old and old['place_id'] != place_id:
+            conn.execute(
+                '''UPDATE clients SET name=?, place_url=?, place_id=?, memo=?,
+                          place_name=NULL, place_x=NULL, place_y=NULL WHERE id=?''',
+                (name, place_url, place_id, memo, client_id))
+        else:
+            conn.execute(
+                'UPDATE clients SET name=?, place_url=?, place_id=?, memo=? WHERE id=?',
+                (name, place_url, place_id, memo, client_id))
+
+
 def delete_client(client_id: int):
     with get_db() as conn:
         conn.execute('DELETE FROM clients WHERE id=?', (client_id,))

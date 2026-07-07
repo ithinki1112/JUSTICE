@@ -10,7 +10,7 @@ from flask import (
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from database import (
-    init_db, create_client, get_clients, get_client, delete_client,
+    init_db, create_client, get_clients, get_client, delete_client, update_client,
     create_keyword, get_keywords_by_client, delete_keyword,
     get_all_active_keywords, record_tracking, get_tracking_logs,
     already_checked_today, get_notifications, mark_notification_read,
@@ -203,6 +203,32 @@ def api_create_client():
     try:
         client_id = create_client(name, place_url, place_id, memo)
         return jsonify({'id': client_id, 'place_id': place_id}), 201
+    except Exception as e:
+        if 'UNIQUE' in str(e):
+            return jsonify({'error': '이미 등록된 URL입니다'}), 409
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/clients/<int:client_id>', methods=['PATCH'])
+def api_update_client(client_id):
+    """업체 정보 수정 (업체명 / 플레이스 URL / 메모)."""
+    data = request.json or {}
+    name = (data.get('name') or '').strip()
+    place_url = (data.get('place_url') or '').strip()
+    memo = (data.get('memo') or '').strip()
+
+    if not name or not place_url:
+        return jsonify({'error': '업체명과 네이버 플레이스 URL을 입력하세요'}), 400
+    if not get_client(client_id):
+        return jsonify({'error': '업체를 찾을 수 없습니다'}), 404
+
+    place_id = extract_place_id(place_url)
+    if not place_id:
+        return jsonify({'error': '네이버 플레이스 URL에서 업체 ID를 추출할 수 없습니다'}), 400
+
+    try:
+        update_client(client_id, name, place_url, place_id, memo)
+        return jsonify({'ok': True, 'place_id': place_id})
     except Exception as e:
         if 'UNIQUE' in str(e):
             return jsonify({'error': '이미 등록된 URL입니다'}), 409
