@@ -507,5 +507,6 @@ def get_dashboard_data():
                 'unread_notifications': unread_noti,
                 'today_exposed': today_exposed,
             },
-            'clients': list(clients_map.values())
+            # 단순 순위체크 업체는 목록 맨 아래로 (그룹 내 순서는 유지 — stable sort)
+            'clients': sorted(clients_map.values(), key=lambda c: 1 if c['check_only'] else 0)
         }
