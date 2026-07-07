@@ -95,6 +95,15 @@ def test_exposure_is_pc_priority(db):
     assert _kw(db["kid"])["exposure_count"] == 0
 
 
+def test_check_only_client_does_not_count_exposure(db):
+    # 단순 순위체크 업체는 노출일/결제 사이클 계산을 하지 않음
+    database.set_client_check_only(db["cid"], True)
+    database.record_tracking(db["kid"], date.today().isoformat(), 3, True, None, False)
+    row = _kw(db["kid"])
+    assert row["exposure_count"] == 0
+    assert row["payment_pending"] == 0
+
+
 def test_exposure_falls_back_to_mobile_when_pc_missing(db):
     # PC를 읽지 못한 경우(rank None)에는 모바일로 판정
     database.record_tracking(db["kid"], date.today().isoformat(), None, False, 3, True)

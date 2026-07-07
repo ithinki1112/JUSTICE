@@ -16,7 +16,7 @@ from database import (
     already_checked_today, get_notifications, mark_notification_read,
     mark_all_notifications_read, get_unread_count, get_dashboard_data,
     set_manual_days, update_client_place_info, mark_payment_complete,
-    get_client_monthly
+    get_client_monthly, set_client_check_only
 )
 from crawler import check_place_rank_sync, extract_place_id
 
@@ -213,6 +213,14 @@ def api_create_client():
 def api_delete_client(client_id):
     delete_client(client_id)
     return jsonify({'ok': True})
+
+
+@app.route('/api/clients/<int:client_id>/check-only', methods=['POST'])
+def api_set_check_only(client_id):
+    """업체 모드 전환 (True=단순 순위체크, False=25일 노출 보장)."""
+    value = bool((request.json or {}).get('check_only'))
+    set_client_check_only(client_id, value)
+    return jsonify({'ok': True, 'check_only': value})
 
 
 @app.route('/api/clients/<int:client_id>/sheet')

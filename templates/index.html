@@ -334,8 +334,16 @@ function renderClients(clients) {
         <strong>${esc(c.name)}</strong>
         <span class="place-id ms-1">ID: ${esc(c.place_id)}</span>
         ${c.place_name ? `<span class="place-id ms-1" title="순위 매칭에 사용되는 업체명">· ${esc(c.place_name)}</span>` : ''}
+        ${c.check_only
+          ? `<span class="badge bg-secondary ms-2" title="노출일/결제 없이 순위만 기록">단순 순위체크</span>`
+          : `<span class="badge badge-active ms-2">25일 보장</span>`}
         ${c.memo ? `<span class="text-muted small ms-2">${esc(c.memo)}</span>` : ''}
         <div class="ms-auto d-flex gap-2">
+          <button class="btn btn-sm ${c.check_only ? 'btn-warning' : 'btn-outline-secondary'} py-0 px-2"
+                  onclick="toggleCheckOnly(${c.id}, ${c.check_only ? 1 : 0}, '${esc(c.name)}')"
+                  title="${c.check_only ? '25일 노출 보장 모드로 전환' : '단순 순위체크 업체로 전환 (노출일/결제 없음)'}">
+            <i class="bi bi-toggles"></i> ${c.check_only ? '보장모드로' : '순위체크전용'}
+          </button>
           <button class="btn btn-sm btn-outline-dark py-0 px-2" onclick="openSheet(${c.id},'${esc(c.name)}')" title="구글시트 복사용 월별 순위표">
             <i class="bi bi-table"></i> 시트
           </button>
@@ -352,7 +360,7 @@ function renderClients(clients) {
       </div>
       ${c.keywords.length === 0
         ? `<div class="kw-row text-muted small">등록된 검색어 없음</div>`
-        : c.keywords.map(k => renderKeywordRow(k)).join('')
+        : c.keywords.map(k => renderKeywordRow(k, c.check_only)).join('')
       }
     </div>
   `).join('');
@@ -364,7 +372,30 @@ function currentRankBadge(rank, exposed) {
   return `<span class="badge ${cls}">📍 현재 순위 ${rank}위</span>`;
 }
 
-function renderKeywordRow(k) {
+function renderKeywordRow(k, checkOnly) {
+  const commonBtns = `
+      <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="viewLogs(${k.id},'${esc(k.keyword)}')">
+        <i class="bi bi-graph-up"></i>
+      </button>
+      <button class="btn btn-sm btn-outline-success py-0 px-2" onclick="checkSingle(${k.id},'${esc(k.keyword)}')" title="즉시 체크">
+        <i class="bi bi-search"></i>
+      </button>
+      <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="confirmDeleteKeyword(${k.id},'${esc(k.keyword)}')">
+        <i class="bi bi-x"></i>
+      </button>`;
+
+  // 단순 순위체크 업체: 노출일/진행바/결제 없이 현재 순위만
+  if (checkOnly) {
+    return `
+    <div class="kw-row d-flex align-items-center gap-2 flex-wrap">
+      <span class="badge bg-secondary rounded-pill">순위체크</span>
+      <strong class="me-1">${esc(k.keyword)}</strong>
+      <span class="d-flex gap-1 flex-grow-1">${currentRankBadge(k.today_pc_rank, k.today_pc_exposed)}</span>
+      ${k.started_at ? `<span class="small text-muted">시작: ${k.started_at}</span>` : ''}
+      ${commonBtns}
+    </div>`;
+  }
+
   const pct = Math.min(k.progress, 100);
   const pending = k.payment_pending;
   // 상태 배지: 결제 대기 > 진행중(N회 완료)
@@ -403,15 +434,7 @@ function renderKeywordRow(k) {
       <button class="btn btn-sm btn-outline-info py-0 px-2" onclick="setManualDays(${k.id}, ${k.manual_days || 0}, '${esc(k.keyword)}')" title="수기 노출일 입력">
         <i class="bi bi-pencil-square"></i>
       </button>
-      <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="viewLogs(${k.id},'${esc(k.keyword)}')">
-        <i class="bi bi-graph-up"></i>
-      </button>
-      <button class="btn btn-sm btn-outline-success py-0 px-2" onclick="checkSingle(${k.id},'${esc(k.keyword)}')" title="즉시 체크">
-        <i class="bi bi-search"></i>
-      </button>
-      <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="confirmDeleteKeyword(${k.id},'${esc(k.keyword)}')">
-        <i class="bi bi-x"></i>
-      </button>
+      ${commonBtns}
     </div>
   `;
 }
@@ -486,6 +509,25 @@ async function submitAddKeyword() {
     await api(`/api/clients/${clientId}/keywords`, { method:'POST', body: JSON.stringify({keyword}) });
     modals.addKeywordModal.hide();
     showToast('검색어가 추가되었습니다', 'success');
+    loadDashboard();
+  } catch(e) {
+    showToast(e.message, 'danger');
+  }
+}
+
+// ── 업체 모드 전환 (보장 / 단순 순위체크) ─────────────────────────────────────
+
+async function toggleCheckOnly(id, current, name) {
+  const toCheckOnly = !current;
+  const msg = toCheckOnly
+    ? `[${name}]을(를) '단순 순위체크' 업체로 전환할까요?\n노출일 카운트·결제 사이클 없이 순위만 기록합니다.`
+    : `[${name}]을(를) '25일 노출 보장' 업체로 되돌릴까요?`;
+  if (!confirm(msg)) return;
+  try {
+    await api(`/api/clients/${id}/check-only`, {
+      method: 'POST', body: JSON.stringify({ check_only: toCheckOnly })
+    });
+    showToast(toCheckOnly ? '단순 순위체크 업체로 전환됨' : '25일 보장 업체로 전환됨', 'success');
     loadDashboard();
   } catch(e) {
     showToast(e.message, 'danger');

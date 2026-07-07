@@ -110,6 +110,9 @@ def _migrate(conn):
         conn.execute("ALTER TABLE keywords ADD COLUMN cycle_start DATE")
     if not _column_exists(conn, 'keywords', 'last_paid_at'):
         conn.execute("ALTER TABLE keywords ADD COLUMN last_paid_at DATE")
+    # 업체 모드: 0=25일 노출 보장, 1=단순 순위체크(노출일/결제 사이클 계산 안 함)
+    if not _column_exists(conn, 'clients', 'check_only'):
+        conn.execute("ALTER TABLE clients ADD COLUMN check_only INTEGER DEFAULT 0")
 
 
 # ── Client CRUD ──────────────────────────────────────────────────────────────
@@ -144,6 +147,12 @@ def get_client(client_id: int):
 def delete_client(client_id: int):
     with get_db() as conn:
         conn.execute('DELETE FROM clients WHERE id=?', (client_id,))
+
+
+def set_client_check_only(client_id: int, value: bool):
+    """업체 모드 전환: True=단순 순위체크, False=25일 노출 보장."""
+    with get_db() as conn:
+        conn.execute('UPDATE clients SET check_only=? WHERE id=?', (1 if value else 0, client_id))
 
 
 # ── Keyword CRUD ──────────────────────────────────────────────────────────────
@@ -205,6 +214,11 @@ def _recompute_exposure(conn, keyword_id: int, as_of: str = None) -> bool:
         (keyword_id,)
     ).fetchone()
     if not row:
+        return False
+
+    # 단순 순위체크 업체는 노출일/결제 사이클 계산을 하지 않음 (순위만 기록)
+    co = conn.execute('SELECT check_only FROM clients WHERE id=?', (row['client_id'],)).fetchone()
+    if co and co['check_only']:
         return False
 
     cycle_start = row['cycle_start'] or row['started_at'] or '0000-01-01'
@@ -421,6 +435,7 @@ def get_dashboard_data():
 
         clients_rows = conn.execute('''
             SELECT c.id, c.name, c.place_url, c.place_id, c.place_name, c.memo, c.created_at,
+                   c.check_only,
                    k.id as kw_id, k.keyword, k.exposure_count, k.goal_days, k.manual_days,
                    k.is_complete, k.started_at, k.completed_at,
                    k.payment_pending, k.cycle_count, k.last_paid_at
@@ -444,6 +459,7 @@ def get_dashboard_data():
                 clients_map[cid] = {
                     'id': cid, 'name': r['name'], 'place_url': r['place_url'],
                     'place_id': r['place_id'], 'place_name': r['place_name'], 'memo': r['memo'],
+                    'check_only': bool(r['check_only']),
                     'created_at': r['created_at'], 'keywords': []
                 }
             if r['kw_id']:
