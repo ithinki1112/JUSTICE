@@ -387,6 +387,15 @@ def get_client_monthly(client_id: int, year: int, month: int):
         }
 
 
+def today_check_count() -> int:
+    """오늘 기록된 순위 체크 로그 수 (0이면 오늘 아직 체크 안 함)."""
+    today = date.today().isoformat()
+    with get_db() as conn:
+        return conn.execute(
+            'SELECT COUNT(*) AS c FROM tracking_logs WHERE check_date=?', (today,)
+        ).fetchone()['c']
+
+
 def already_checked_today(keyword_id: int) -> bool:
     today = date.today().isoformat()
     with get_db() as conn:
