@@ -679,7 +679,8 @@ async function pollCrawlStatus() {
 
   if (status.running) {
     wasRunning = true;
-    label.innerHTML = '<span class="checking"><i class="bi bi-circle-fill"></i> 체크 중...</span>';
+    const prog = status.progress ? ` ${status.progress}` : '';
+    label.innerHTML = `<span class="checking"><i class="bi bi-circle-fill"></i> 체크 중${prog}...</span>`;
     btn.disabled = true;
     spinner.classList.add('active');
     pollTimer = setTimeout(pollCrawlStatus, 5000);

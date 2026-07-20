@@ -30,7 +30,7 @@ APP_PASSWORD = os.environ.get('APP_PASSWORD', 'justice1234')
 
 # 동시에 여러 크롤링이 실행되지 않도록 락 사용
 crawl_lock = threading.Lock()
-crawl_status = {'running': False, 'last_run': None, 'last_result': ''}
+crawl_status = {'running': False, 'last_run': None, 'last_result': '', 'progress': ''}
 
 
 # ── 크롤링 공통 ────────────────────────────────────────────────────────────────
@@ -67,19 +67,31 @@ def run_daily_check():
     with crawl_lock:
         crawl_status['running'] = True
         crawl_status['last_result'] = ''
-        keywords = get_all_active_keywords()
+        crawl_status['progress'] = ''
         results = []
-        for kw in keywords:
-            # 하루 여러 번(정오/오후3시) 체크 — 같은 날 기록은 최신값으로 갱신됨
-            result, completed = crawl_and_record(kw)
-            pc = result.get('pc', {})
-            rank = pc.get('rank')
-            rank_str = f"{rank}위" if rank else '미노출'
-            flag = ' ★결제요청!' if completed else ''
-            results.append(f"[OK] {kw['client_name']} / {kw['keyword']} → 현재 {rank_str}{flag}")
-        crawl_status['last_run'] = date.today().isoformat()
-        crawl_status['last_result'] = '\n'.join(results) if results else '대상 없음'
-        crawl_status['running'] = False
+        try:
+            keywords = get_all_active_keywords()
+            total = len(keywords)
+            for i, kw in enumerate(keywords, 1):
+                crawl_status['progress'] = f'{i}/{total}'
+                # 한 키워드에서 오류가 나도 전체 체크가 멈추지 않도록 개별 처리
+                try:
+                    result, completed = crawl_and_record(kw)
+                    pc = result.get('pc', {})
+                    rank = pc.get('rank')
+                    rank_str = f"{rank}위" if rank else '미노출'
+                    flag = ' ★결제요청!' if completed else ''
+                    results.append(f"[OK] {kw['client_name']} / {kw['keyword']} → 현재 {rank_str}{flag}")
+                except Exception as e:
+                    results.append(f"[오류] {kw['client_name']} / {kw['keyword']} → {e}")
+            crawl_status['last_run'] = date.today().isoformat()
+            crawl_status['last_result'] = '\n'.join(results) if results else '대상 없음'
+        except Exception as e:
+            crawl_status['last_result'] = f'체크 중 오류: {e}\n' + '\n'.join(results)
+        finally:
+            # 무슨 일이 있어도 '체크 중' 상태를 반드시 해제 (멈춤 방지)
+            crawl_status['progress'] = ''
+            crawl_status['running'] = False
 
 
 # DB 초기화/마이그레이션 (실패해도 앱은 떠서 원인 파악이 가능하도록 방어)
