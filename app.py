@@ -16,8 +16,9 @@ from database import (
     already_checked_today, today_check_count, get_notifications, mark_notification_read,
     mark_all_notifications_read, get_unread_count, get_dashboard_data,
     set_manual_days, update_client_place_info, mark_payment_complete,
-    get_client_monthly, set_client_check_only
+    get_client_monthly, set_client_check_only, set_manual_rank
 )
+import re as _re
 from crawler import check_place_rank_sync, extract_place_id
 
 app = Flask(__name__)
@@ -344,6 +345,26 @@ def api_set_manual_days(keyword_id):
         return jsonify({'error': '0 이상의 값을 입력하세요'}), 400
     completed = set_manual_days(keyword_id, days)
     return jsonify({'ok': True, 'completed': completed})
+
+
+@app.route('/api/keywords/<int:keyword_id>/manual-rank', methods=['POST'])
+def api_set_manual_rank(keyword_id):
+    """특정 날짜 순위 수동 입력 (시트 빈 칸 채우기). rank가 비면 그날 기록 삭제."""
+    data = request.json or {}
+    check_date = (data.get('date') or '').strip()
+    if not _re.match(r'^\d{4}-\d{2}-\d{2}$', check_date):
+        return jsonify({'error': '날짜 형식이 올바르지 않습니다'}), 400
+    rank_raw = data.get('rank')
+    rank = None
+    if rank_raw not in (None, ''):
+        try:
+            rank = int(rank_raw)
+        except (TypeError, ValueError):
+            return jsonify({'error': '순위는 숫자로 입력하세요'}), 400
+        if rank < 1 or rank > 500:
+            return jsonify({'error': '순위는 1~500 사이로 입력하세요'}), 400
+    set_manual_rank(keyword_id, check_date, rank)
+    return jsonify({'ok': True})
 
 
 @app.route('/api/keywords/<int:keyword_id>/payment-complete', methods=['POST'])

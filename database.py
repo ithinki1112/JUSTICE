@@ -340,6 +340,28 @@ def update_client_place_info(client_id: int, place_name: str = None,
         conn.execute(f'UPDATE clients SET {", ".join(sets)} WHERE id=?', vals)
 
 
+def set_manual_rank(keyword_id: int, check_date: str, rank):
+    """특정 날짜의 순위를 수동으로 입력/수정합니다. rank가 None이면 그날 기록 삭제.
+       1~5위면 노출일로 카운트되며, 노출일 누적도 재계산합니다."""
+    with get_db() as conn:
+        if rank is None:
+            conn.execute(
+                'DELETE FROM tracking_logs WHERE keyword_id=? AND check_date=?',
+                (keyword_id, check_date))
+        else:
+            exposed = 1 if rank <= 5 else 0
+            conn.execute('''
+                INSERT INTO tracking_logs
+                    (keyword_id, check_date, pc_rank, pc_exposed, is_exposed)
+                VALUES (?,?,?,?,?)
+                ON CONFLICT(keyword_id, check_date) DO UPDATE SET
+                    pc_rank=excluded.pc_rank,
+                    pc_exposed=excluded.pc_exposed,
+                    is_exposed=excluded.is_exposed
+            ''', (keyword_id, check_date, rank, exposed, exposed))
+        _recompute_exposure(conn, keyword_id, as_of=check_date)
+
+
 def get_tracking_logs(keyword_id: int, limit: int = 30):
     with get_db() as conn:
         rows = conn.execute('''
@@ -375,6 +397,7 @@ def get_client_monthly(client_id: int, year: int, month: int):
                 # 현재 순위는 PC 기준 (PC 없으면 모바일)
                 daily[day] = l['pc_rank'] if l['pc_rank'] is not None else l['mobile_rank']
             keywords.append({
+                'id': k['id'],
                 'keyword': k['keyword'],
                 'goal_days': k['goal_days'],
                 'exposure_count': k['exposure_count'],

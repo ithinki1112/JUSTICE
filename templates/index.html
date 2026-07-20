@@ -862,23 +862,61 @@ function renderSheet(data) {
   const today = new Date();
   const thisMonth = today.getFullYear() === data.year && (today.getMonth() + 1) === data.month;
   const todayDay = today.getDate();
-  const isTodayCol = idx => thisMonth && idx >= 5 && (idx - 4) === todayDay;
-  const { header, rows } = sheetRows(data);
-  const thead = '<tr>' + header.map((h, idx) =>
-    `<th class="text-center ${isTodayCol(idx) ? 'table-warning' : ''}" style="white-space:nowrap">${esc(h)}</th>`
-  ).join('') + '</tr>';
-  const tbody = rows.map(r => '<tr>' + r.map((c, idx) => {
-    const exposed = idx >= 5 && c !== '' && Number(c) <= 5;
-    const cls = idx < 5
-      ? 'text-nowrap'
-      : `text-center ${isTodayCol(idx) ? 'table-warning' : ''} ${exposed ? 'text-success fw-bold' : 'text-muted'}`;
-    return `<td class="${cls}">${esc(c)}</td>`;
-  }).join('') + '</tr>').join('');
+  const tw = d => (thisMonth && d === todayDay) ? 'table-warning' : '';
+
+  let thead = '<tr>' + ['순번','키워드','구분(노출영역)','목표순위','달성일']
+    .map(h => `<th class="text-nowrap">${h}</th>`).join('');
+  for (let d = 1; d <= data.days; d++) thead += `<th class="text-center ${tw(d)}" style="white-space:nowrap">${d}일</th>`;
+  thead += '</tr>';
+
+  let tbody = '';
+  data.keywords.forEach((k, i) => {
+    tbody += `<tr>
+      <td class="text-nowrap">${i + 1}</td>
+      <td class="text-nowrap">${esc(k.keyword)}</td>
+      <td class="text-nowrap">플레이스 상위노출</td>
+      <td class="text-nowrap">1~5위</td>
+      <td class="text-nowrap">${k.exposure_count}</td>`;
+    for (let d = 1; d <= data.days; d++) {
+      const v = k.daily[d];
+      const has = v !== undefined && v !== null;
+      const exposed = has && Number(v) <= 5;
+      const cls = `text-center sheet-cell ${tw(d)} ${exposed ? 'text-success fw-bold' : 'text-muted'}`;
+      tbody += `<td class="${cls}" style="cursor:pointer" title="클릭해 순위 직접 입력"
+                    onclick="editSheetCell(${k.id}, ${data.year}, ${data.month}, ${d})">${has ? v : ''}</td>`;
+    }
+    tbody += '</tr>';
+  });
+
   document.getElementById('sheetModalBody').innerHTML = `
-    <p class="small text-muted mb-2">📋 <b>복사</b> 버튼 → 구글시트에서 붙여넣기(Ctrl+V). 값은 그날의 현재 순위(PC 기준), 1~5위는 초록색입니다.</p>
+    <p class="small text-muted mb-2">📋 <b>복사</b> → 구글시트 Ctrl+V. &nbsp;|&nbsp; 날짜 칸을 <b>클릭하면 그 날짜 순위를 직접 입력</b>할 수 있어요(빈 날짜 채우기). 1~5위는 초록색.</p>
     <table class="table table-sm table-bordered align-middle" style="font-size:.8rem">
       <thead class="table-light">${thead}</thead><tbody>${tbody}</tbody>
     </table>`;
+}
+
+async function editSheetCell(kwId, year, month, day) {
+  const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  const k = (sheetState.data && sheetState.data.keywords || []).find(x => x.id === kwId);
+  const cur = (k && k.daily[day] != null) ? k.daily[day] : '';
+  const v = prompt(`${month}월 ${day}일 순위를 입력하세요.\n(비우고 확인하면 그날 기록이 삭제됩니다)`, cur);
+  if (v === null) return;
+  const t = String(v).trim();
+  let rank = '';
+  if (t !== '') {
+    rank = parseInt(t, 10);
+    if (isNaN(rank) || rank < 1) { showToast('1 이상의 숫자를 입력하세요', 'danger'); return; }
+  }
+  try {
+    await api(`/api/keywords/${kwId}/manual-rank`, {
+      method: 'POST', body: JSON.stringify({ date: dateStr, rank: t === '' ? '' : rank })
+    });
+    showToast(`${month}/${day} 순위 ${t === '' ? '삭제됨' : '저장됨'}`, 'success');
+    await loadSheet();
+    loadDashboard();
+  } catch(e) {
+    showToast(e.message, 'danger');
+  }
 }
 
 async function copySheet() {
