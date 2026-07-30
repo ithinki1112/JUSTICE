@@ -95,27 +95,6 @@ def run_daily_check():
             crawl_status['running'] = False
 
 
-def _startup_catchup():
-    """앱이 켜질 때, 오늘 첫 예약(12시)이 지났는데 오늘 체크 기록이 하나도 없으면
-       한 번 실행한다. (재배포로 예약 시각을 놓쳐 시트가 비는 것을 방지)"""
-    import time as _time
-    _time.sleep(10)  # 앱 안정화 대기
-    try:
-        from datetime import datetime
-        try:
-            from zoneinfo import ZoneInfo
-            now = datetime.now(ZoneInfo('Asia/Seoul'))
-        except Exception:
-            now = datetime.now()
-        if now.hour < 12:
-            return  # 아직 첫 예약 시각 전
-        if today_check_count() == 0 and not crawl_lock.locked():
-            print('[JUSTICE] startup catch-up: 오늘 미체크 → 자동 체크 실행', flush=True)
-            run_daily_check()
-    except Exception as e:
-        print(f'[JUSTICE] catchup FAILED: {e!r}', flush=True)
-
-
 # DB 초기화/마이그레이션 (실패해도 앱은 떠서 원인 파악이 가능하도록 방어)
 print('[JUSTICE] init_db ...', flush=True)
 try:
@@ -134,8 +113,6 @@ try:
                       misfire_grace_time=6 * 3600, coalesce=True)
     scheduler.start()
     print('[JUSTICE] scheduler started', flush=True)
-    # 재배포로 오늘 예약을 놓쳤을 경우 대비한 캐치업 (백그라운드)
-    threading.Thread(target=_startup_catchup, daemon=True).start()
 except Exception as e:
     print(f'[JUSTICE] scheduler FAILED: {e!r}', flush=True)
 

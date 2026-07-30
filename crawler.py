@@ -37,6 +37,18 @@ ITEM_SELECTORS = [
 DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
 MOBILE_UA  = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
 
+# 작은 클라우드 컨테이너(Railway 등)에서 크롬이 죽지 않도록 하는 옵션.
+#  - disable-dev-shm-usage: 컨테이너의 /dev/shm 이 작아 크래시하는 문제 방지 (핵심)
+#  - no-sandbox: 컨테이너 root 실행 대응
+#  (--single-process 는 Playwright 에서 크래시를 유발해 제외)
+CHROMIUM_ARGS = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--disable-extensions',
+]
+
 # 항목별 {광고여부, 업체명일치여부, 표시이름}을 한 번에 계산하는 JS.
 #
 # 네이버는 검색 페이지마다 업체명 CSS 클래스를 다르게 준다(.YwYLL, .q2LdB ...).
@@ -294,7 +306,7 @@ async def check_place_rank_both(keyword: str, place_id: str,
     """
     none_mb = {'rank': None, 'is_exposed': False, 'error': None}
     async with async_playwright() as p:
-        pc_browser = await p.chromium.launch(headless=headless)
+        pc_browser = await p.chromium.launch(headless=headless, args=CHROMIUM_ARGS)
         pc_ctx = await pc_browser.new_context(
             user_agent=DESKTOP_UA,
             locale='ko-KR', timezone_id='Asia/Seoul',
