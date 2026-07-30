@@ -469,7 +469,7 @@ function renderKeywordRow(k, checkOnly) {
       ${k.completed_at ? `<span class="small fw-bold ${pending ? 'text-danger' : 'text-success'}" title="가장 최근 25일 보장 달성일">🎯 보장완료: ${k.completed_at}</span>` : ''}
       ${k.last_paid_at && !pending ? `<span class="small text-muted">결제완료: ${k.last_paid_at}</span>` : ''}
       ${payBtn}
-      <button class="btn btn-sm btn-outline-info py-0 px-2" onclick="setManualDays(${k.id}, ${k.manual_days || 0}, '${esc(k.keyword)}')" title="수기 노출일 입력">
+      <button class="btn btn-sm btn-outline-info py-0 px-2" onclick="setManualDays(${k.id}, ${k.manual_days || 0}, ${k.exposure_count}, '${esc(k.keyword)}')" title="과거 노출일 수기 입력">
         <i class="bi bi-pencil-square"></i>
       </button>
       ${commonBtns}
@@ -738,10 +738,13 @@ async function markAllRead() {
 
 // ── 수기 노출일 입력 ──────────────────────────────────────────────────────────
 
-async function setManualDays(kwId, current, kwText) {
+async function setManualDays(kwId, current, exposureCount, kwText) {
+  const autoDays = exposureCount - current;  // 앱이 실제 기록한 노출일 수
   const v = prompt(
-    `[${kwText}] 지금까지 노출된 누적 일수를 입력하세요.\n` +
-    `(구글시트 등에 적어두신 값. 이 값을 기준으로 이후 자동 체크가 더해집니다.)`,
+    `[${kwText}] 앱이 기록하지 못한 '과거 노출일 수'를 입력하세요.\n` +
+    `이 값이 앱 기록(${autoDays}일)에 더해져 달성일이 됩니다.\n` +
+    `예) 4월에 2일 노출됐었다면 → 2 입력\n` +
+    `(현재 달성일 ${exposureCount}일)`,
     current
   );
   if (v === null) return;
@@ -751,7 +754,7 @@ async function setManualDays(kwId, current, kwText) {
     const r = await api(`/api/keywords/${kwId}/manual-days`, {
       method: 'POST', body: JSON.stringify({ days })
     });
-    showToast(`수기 노출일 ${days}일 저장됨${r.completed ? ' ★ 목표 달성!' : ''}`, 'success');
+    showToast(`과거 노출일 ${days}일 반영됨 (달성일 ${autoDays + days}일)${r.completed ? ' ★ 보장 달성!' : ''}`, 'success');
     loadDashboard();
   } catch(e) {
     showToast(e.message, 'danger');
