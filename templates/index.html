@@ -404,8 +404,12 @@ function renderClients(clients) {
   `).join('');
 }
 
-function currentRankBadge(rank, exposed) {
-  if (rank === null || rank === undefined) return `<span class="badge bg-light text-muted">현재 순위 미확인</span>`;
+function currentRankBadge(rank, exposed, checked) {
+  if (rank === null || rank === undefined) {
+    return checked
+      ? `<span class="badge bg-secondary-subtle text-secondary" title="오늘 체크했으나 70위 안에 없음">현재 미노출</span>`
+      : `<span class="badge bg-light text-muted" title="오늘 아직 체크 안 됨 — 즉시 체크(🔍)로 확인">오늘 체크 전</span>`;
+  }
   const cls = exposed ? 'badge-exposed' : 'bg-light text-muted';
   return `<span class="badge ${cls}">📍 현재 순위 ${rank}위</span>`;
 }
@@ -428,7 +432,7 @@ function renderKeywordRow(k, checkOnly) {
     <div class="kw-row d-flex align-items-center gap-2 flex-wrap">
       <span class="badge bg-secondary rounded-pill">순위체크</span>
       <strong class="me-1">${esc(k.keyword)}</strong>
-      <span class="d-flex gap-1 flex-grow-1">${currentRankBadge(k.today_pc_rank, k.today_pc_exposed)}</span>
+      <span class="d-flex gap-1 flex-grow-1">${currentRankBadge(k.today_pc_rank, k.today_pc_exposed, k.today_checked)}</span>
       ${k.started_at ? `<span class="small text-muted">시작: ${k.started_at}</span>` : ''}
       ${commonBtns}
     </div>`;
@@ -443,7 +447,7 @@ function renderKeywordRow(k, checkOnly) {
   else { badgeCls = 'badge-active'; badgeText = '진행중'; }
   const barCls = pending ? 'done' : '';
 
-  const todayBadges = currentRankBadge(k.today_pc_rank, k.today_pc_exposed);
+  const todayBadges = currentRankBadge(k.today_pc_rank, k.today_pc_exposed, k.today_checked);
 
   // 결제완료 버튼: 결제 대기일 때만 표시하고 깜빡임
   const payBtn = pending

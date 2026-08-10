@@ -524,6 +524,7 @@ def get_dashboard_data():
                     'cycle_count': r['cycle_count'] or 0,
                     'last_paid_at': r['last_paid_at'],
                     'progress': round(r['exposure_count'] / r['goal_days'] * 100, 1) if r['goal_days'] else 0,
+                    'today_checked': r['kw_id'] in today_logs,
                     'today_pc_rank': log.get('pc_rank'),
                     'today_pc_exposed': bool(log.get('pc_exposed')),
                     'today_mobile_rank': log.get('mobile_rank'),
