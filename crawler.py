@@ -81,7 +81,8 @@ _COLLECT_JS = """
 }
 """
 
-# 목록 스크롤 컨테이너를 이동시키는 JS (위로 / 아래로 step px)
+# 목록 스크롤 JS. top이면 맨 위로, 아니면 현재 로드된 끝까지 내려 다음 lazy-load를 유발.
+# (매 라운드마다 읽어서 누적하므로, 끝까지 내려 상위 항목이 재활용돼도 데이터 손실 없음)
 _SCROLL_JS = """
 (arg) => {
   const c = document.querySelector('#_pcmap_list_scroll_container')
@@ -158,8 +159,8 @@ async def _resolve_place_info(page, place_id: str):
 # ── 목록에서 순위 찾기 ─────────────────────────────────────────────────────────
 
 async def _collect_items(page_or_frame, item_sel: str, target: str,
-                         step: int = 350, sleep: float = 0.7,
-                         stable_max: int = 5, max_rounds: int = 40):
+                         step: int = 600, sleep: float = 0.7,
+                         stable_max: int = 12, max_rounds: int = 60):
     """가상 스크롤 목록을 위에서부터 조금씩 내리며 항목을 순서대로 누적합니다.
        (끝까지 한 번에 내리면 상위 항목이 DOM에서 제거되므로, 조금씩 내리며 모아야 함)
        업체명+광고여부로 중복 제거. 우리 업체를 찾으면 즉시 중단."""
@@ -197,46 +198,64 @@ async def _collect_items(page_or_frame, item_sel: str, target: str,
     return seen
 
 
+# pcmap 페이지의 Apollo 캐시(window.__APOLLO_STATE__)에서 자연순위 목록을 읽는다.
+# ROOT_QUERY.placeList(...).businesses.items 에 display 수만큼(최대 70) 순서대로 담겨 있어,
+# 스크롤/가상화 없이 정확한 순위를 얻는다. (광고는 별도 adBusinesses 라 자동 제외됨)
+_APOLLO_JS = """
+(targetNorm) => {
+  const norm = s => (s || '').replace(/\\s+/g, '').toLowerCase();
+  const st = window.__APOLLO_STATE__ || {};
+  const root = st.ROOT_QUERY || {};
+  const plKey = Object.keys(root).find(k => k.indexOf('placeList(') === 0);
+  if (!plKey || !root[plKey]) return { ok: false };
+  const items = ((root[plKey].businesses || {}).items) || [];
+  const names = [];
+  for (const it of items) {
+    const ref = it && it.__ref;
+    const n = ref && st[ref] ? st[ref].name : (it && it.name);
+    if (n) names.push(n);
+  }
+  let rank = null;
+  if (targetNorm.length >= 2) {
+    for (let i = 0; i < names.length; i++) {
+      if (norm(names[i]) === targetNorm) { rank = i + 1; break; }
+    }
+  }
+  return { ok: true, total: names.length, rank };
+}
+"""
+
+
 async def _find_rank(page_or_frame, target_name: str) -> dict:
-    """현재 페이지/프레임의 검색 목록에서 target_name의 자연 순위를 찾습니다."""
+    """pcmap Apollo 캐시에서 target_name의 자연순위를 읽습니다 (스크롤 불필요)."""
     result = {'rank': None, 'is_exposed': False, 'checked': 0, 'error': None}
     target = _norm(target_name)
 
-    # 목록 항목이 하나라도 뜰 때까지 대기
+    # placeList 캐시가 채워질 때까지 대기
     try:
-        await page_or_frame.wait_for_selector(', '.join(ITEM_SELECTORS), timeout=8000)
+        await page_or_frame.wait_for_function(
+            "() => { const r=(window.__APOLLO_STATE__||{}).ROOT_QUERY||{};"
+            " return Object.keys(r).some(k => k.indexOf('placeList(')===0"
+            " && r[k] && r[k].businesses && (r[k].businesses.items||[]).length); }",
+            timeout=12000)
     except PlaywrightTimeout:
-        result['error'] = '업체 목록 없음 (셀렉터 업데이트 필요)'
+        result['error'] = '업체 목록 없음 (데이터 로드 실패)'
         return result
 
-    # 항목이 잡히는 셀렉터 선택
-    item_sel = None
-    for sel in ITEM_SELECTORS:
-        try:
-            if await page_or_frame.eval_on_selector_all(sel, '(els) => els.length'):
-                item_sel = sel
-                break
-        except Exception:
-            continue
-    if not item_sel:
-        result['error'] = '업체 목록 없음 (셀렉터 업데이트 필요)'
+    try:
+        data = await page_or_frame.evaluate(_APOLLO_JS, target)
+    except Exception as e:
+        result['error'] = f'목록 파싱 실패: {e}'
         return result
 
-    # 스크롤하며 항목을 순서대로 누적 (하위 순위까지 정확히)
-    items = await _collect_items(page_or_frame, item_sel, target)
+    if not data or not data.get('ok'):
+        result['error'] = '업체 목록 파싱 실패'
+        return result
 
-    # 광고 슬롯만 제외하고, 네이버가 표시하는 자연순위 위치 그대로 카운트
-    organic = 0
-    for d in items:
-        result['checked'] += 1
-        if d.get('isAd'):
-            continue
-        organic += 1
-        if d.get('isMatch'):
-            result['rank'] = organic
-            result['is_exposed'] = organic <= 5
-            return result
-
+    result['checked'] = data.get('total', 0)
+    if data.get('rank'):
+        result['rank'] = data['rank']
+        result['is_exposed'] = data['rank'] <= 5
     return result
 
 
