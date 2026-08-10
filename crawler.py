@@ -325,7 +325,7 @@ async def check_place_rank_both(keyword: str, place_id: str,
     """
     none_mb = {'rank': None, 'is_exposed': False, 'error': None}
     async with async_playwright() as p:
-        pc_browser = await p.chromium.launch(headless=headless, args=CHROMIUM_ARGS)
+        pc_browser = await p.chromium.launch(headless=headless, args=CHROMIUM_ARGS, timeout=40000)
         pc_ctx = await pc_browser.new_context(
             user_agent=DESKTOP_UA,
             locale='ko-KR', timezone_id='Asia/Seoul',
@@ -336,29 +336,37 @@ async def check_place_rank_both(keyword: str, place_id: str,
             "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
         )
 
-        try:
-            # 업체명/좌표 확보 (없으면 place_id로 조회)
-            if not place_name or not (place_x and place_y):
+        async def _work():
+            pn, px, py = place_name, place_x, place_y
+            if not pn or not (px and py):
                 r_name, r_x, r_y = await _resolve_place_info(pc_page, place_id)
-                place_name = place_name or r_name
-                if not (place_x and place_y):
-                    place_x, place_y = r_x, r_y
-
-            if not place_name:
-                err = {'rank': None, 'is_exposed': False, 'error': '업체명을 확인할 수 없음 (place_id 확인 필요)'}
+                pn = pn or r_name
+                if not (px and py):
+                    px, py = r_x, r_y
+            if not pn:
                 return {'place_name': None, 'place_x': None, 'place_y': None,
-                        'pc': dict(err), 'mobile': dict(none_mb)}
-
-            try:
-                pc_result = await _check_pc(pc_page, keyword, place_name, place_x, place_y)
-            except Exception as e:
-                pc_result = {'rank': None, 'is_exposed': False, 'error': f'PC: {e}'}
-
-            return {'place_name': place_name, 'place_x': place_x, 'place_y': place_y,
+                        'pc': {'rank': None, 'is_exposed': False, 'error': '업체명을 확인할 수 없음 (place_id 확인 필요)'},
+                        'mobile': dict(none_mb)}
+            pc_result = await _check_pc(pc_page, keyword, pn, px, py)
+            return {'place_name': pn, 'place_x': px, 'place_y': py,
                     'pc': pc_result, 'mobile': dict(none_mb)}
 
+        try:
+            # 한 키워드가 멈춰도 전체 체크가 막히지 않도록 시간 제한 (최대 60초)
+            return await asyncio.wait_for(_work(), timeout=60)
+        except asyncio.TimeoutError:
+            return {'place_name': place_name, 'place_x': place_x, 'place_y': place_y,
+                    'pc': {'rank': None, 'is_exposed': False, 'error': 'PC: 시간 초과(60s)'},
+                    'mobile': dict(none_mb)}
+        except Exception as e:
+            return {'place_name': place_name, 'place_x': place_x, 'place_y': place_y,
+                    'pc': {'rank': None, 'is_exposed': False, 'error': f'PC: {e}'},
+                    'mobile': dict(none_mb)}
         finally:
-            await pc_browser.close()
+            try:
+                await pc_browser.close()
+            except Exception:
+                pass
 
 
 def check_place_rank_sync(keyword: str, place_id: str,

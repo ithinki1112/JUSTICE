@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 import threading
 from datetime import date, timedelta
 from flask import (
@@ -31,7 +32,7 @@ APP_PASSWORD = os.environ.get('APP_PASSWORD', 'justice1234')
 
 # 동시에 여러 크롤링이 실행되지 않도록 락 사용
 crawl_lock = threading.Lock()
-crawl_status = {'running': False, 'last_run': None, 'last_result': '', 'progress': ''}
+crawl_status = {'running': False, 'last_run': None, 'last_result': '', 'progress': '', 'started_ts': 0}
 
 
 # ── 크롤링 공통 ────────────────────────────────────────────────────────────────
@@ -67,6 +68,7 @@ def run_daily_check():
         return
     with crawl_lock:
         crawl_status['running'] = True
+        crawl_status['started_ts'] = time.time()
         crawl_status['last_result'] = ''
         crawl_status['progress'] = ''
         results = []
@@ -365,6 +367,12 @@ def api_manual_check():
 
 @app.route('/api/check/status')
 def api_check_status():
+    # 너무 오래(10분↑) '체크 중'이면 뭔가 멈춘 것 → stale로 간주해 자동 해제
+    if crawl_status['running'] and crawl_status.get('started_ts') \
+            and time.time() - crawl_status['started_ts'] > 600:
+        crawl_status['running'] = False
+        crawl_status['progress'] = ''
+        crawl_status['last_result'] = '체크가 오래 응답 없어 자동 종료되었습니다. 다시 시도해주세요.'
     return jsonify(crawl_status)
 
 
