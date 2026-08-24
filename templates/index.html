@@ -391,9 +391,6 @@ function renderClients(clients) {
           <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="openEditClient(${c.id})" title="업체 정보 수정">
             <i class="bi bi-pencil"></i> 수정
           </button>
-          <button class="btn btn-sm btn-outline-warning py-0 px-2" onclick="copyPaymentRequest(${c.id})" title="입금 요청 문자 복사 (카톡 붙여넣기용)">
-            <i class="bi bi-cash-stack"></i> 입금요청
-          </button>
           <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="confirmDeleteClient(${c.id},'${esc(c.name)}')">
             <i class="bi bi-trash"></i>
           </button>
@@ -618,39 +615,6 @@ async function toggleCheckOnly(id, current, name) {
     loadDashboard();
   } catch(e) {
     showToast(e.message, 'danger');
-  }
-}
-
-// ── 입금 요청 문자 복사 ───────────────────────────────────────────────────────
-
-async function copyPaymentRequest(clientId) {
-  const c = clientsCache.find(x => x.id === clientId);
-  if (!c) { showToast('업체 정보를 찾을 수 없습니다', 'danger'); return; }
-  const pending = c.keywords.filter(k => k.payment_pending);
-  const list = pending.length ? pending : c.keywords;
-  if (!list.length) { showToast('등록된 검색어가 없습니다', 'warning'); return; }
-
-  const lines = list.map(k =>
-    `· ${k.keyword}${k.payment_pending && k.completed_at ? ` (보장완료 ${k.completed_at})` : ''}`
-  ).join('\n');
-
-  const msg =
-`안녕하세요, ${c.name} 담당자님.
-아래 키워드 네이버 플레이스 상위노출 25일 보장이 완료되어 입금 요청드립니다.
-
-${lines}
-
-▶ 입금 계좌
-기업은행 455-087409-04-019
-예금주: 주식회사 이케이디랩스
-
-확인 후 입금 부탁드립니다. 감사합니다.`;
-
-  try {
-    await navigator.clipboard.writeText(msg);
-    showToast('입금 요청 문자 복사됨! 카톡에 붙여넣기(Ctrl+V) 하세요', 'success');
-  } catch(e) {
-    showToast('복사 실패 — 아래 내용을 직접 복사하세요:\n' + msg, 'warning');
   }
 }
 
