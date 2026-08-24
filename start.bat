@@ -12,8 +12,12 @@ if %ERRORLEVEL% EQU 0 (
     )
 )
 
+set PORT=5000
+set APP_PASSWORD=justice1234
+set FLASK_DEBUG=0
+
 echo JUSTICE 시작 중...
-echo 브라우저에서 http://localhost:5000 으로 접속하세요
+echo 브라우저에서 http://localhost:5000 으로 접속하세요 (비밀번호: justice1234)
 echo 종료하려면 이 창을 닫으세요.
 echo.
 start "" http://localhost:5000
