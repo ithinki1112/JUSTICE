@@ -255,8 +255,11 @@ def api_update_client(client_id):
 
 @app.route('/api/clients/<int:client_id>', methods=['DELETE'])
 def api_delete_client(client_id):
-    delete_client(client_id)
-    return jsonify({'ok': True})
+    try:
+        delete_client(client_id)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': f'삭제 실패: {e}'}), 500
 
 
 @app.route('/api/clients/<int:client_id>/check-only', methods=['POST'])

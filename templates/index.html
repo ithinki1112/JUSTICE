@@ -622,10 +622,9 @@ async function toggleCheckOnly(id, current, name) {
 
 function confirmDeleteClient(id, name) {
   if (!confirm(`[${name}] 업체를 삭제하시겠습니까?\n모든 검색어와 트래킹 데이터가 삭제됩니다.`)) return;
-  api(`/api/clients/${id}`, {method:'DELETE'}).then(() => {
-    showToast('삭제되었습니다', 'secondary');
-    loadDashboard();
-  });
+  api(`/api/clients/${id}`, {method:'DELETE'})
+    .then(() => { showToast('삭제되었습니다', 'secondary'); loadDashboard(); })
+    .catch(e => showToast(e.message, 'danger'));
 }
 
 function confirmDeleteKeyword(id, kw) {

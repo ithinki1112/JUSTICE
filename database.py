@@ -161,6 +161,9 @@ def update_client(client_id: int, name: str, place_url: str, place_id: str, memo
 
 def delete_client(client_id: int):
     with get_db() as conn:
+        # 알림은 client_id FK에 ON DELETE CASCADE가 없어 먼저 삭제해야 함
+        # (keywords/tracking_logs 는 CASCADE 라 자동 삭제됨)
+        conn.execute('DELETE FROM notifications WHERE client_id=?', (client_id,))
         conn.execute('DELETE FROM clients WHERE id=?', (client_id,))
 
 
